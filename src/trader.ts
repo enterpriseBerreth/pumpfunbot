@@ -1,5 +1,5 @@
 import { CONFIG } from './config.js';
-import { Position, TradeEvent, BotState, TokenCandidate } from './types.js';
+import { Position, TradeEvent, BotState, TokenCandidate, DailyStats } from './types.js';
 import { fetchMultipleTokenPrices, getSolPrice } from './scanner.js';
 import { TelegramAlert } from './telegram.js';
 import { log } from './logger.js';
@@ -524,6 +524,61 @@ export class PaperTrader {
       }
     }
     console.log('');
+  }
+
+  // ── Daily Stats ──
+
+  getDailyStats(tokensScanned: number): DailyStats {
+    const now = Date.now();
+    const dayStart = new Date().setUTCHours(0, 0, 0, 0); // UTC midnight
+
+    // Closed trades from today
+    const todayTrades = Array.from(this.state.positions.values()).filter(
+      (p) => p.status === 'closed' && p.entryTime >= dayStart
+    );
+
+    const wins = todayTrades.filter((t) => t.pnlUsd >= 0).length;
+    const losses = todayTrades.filter((t) => t.pnlUsd < 0).length;
+    const pnlUsd = todayTrades.reduce((s, t) => s + t.pnlUsd, 0);
+    const totalFees = todayTrades.reduce((s, t) => s + t.totalFeesUsd, 0);
+
+    const holdTimes = todayTrades.map((t) => (t.lastUpdate - t.entryTime) / 1000);
+    const avgHold = holdTimes.length > 0 ? holdTimes.reduce((a, b) => a + b, 0) / holdTimes.length : 0;
+
+    let best: { symbol: string; pnlPct: number } | null = null;
+    let worst: { symbol: string; pnlPct: number } | null = null;
+    for (const t of todayTrades) {
+      if (!best || t.pnlPct > best.pnlPct) best = { symbol: t.symbol, pnlPct: t.pnlPct };
+      if (!worst || t.pnlPct < worst.pnlPct) worst = { symbol: t.symbol, pnlPct: t.pnlPct };
+    }
+
+    const exitReasons: Record<string, number> = {};
+    for (const t of todayTrades) {
+      const reason = t.exitReason || 'unknown';
+      const key = reason.replace(/[:\-].*/, '').trim(); // Normalize
+      exitReasons[key] = (exitReasons[key] || 0) + 1;
+    }
+
+    const capitalStart = CONFIG.STARTING_BUDGET_USD;
+    const capitalEnd = this.state.budgetRemaining;
+    const pnlPct = capitalStart > 0 ? (pnlUsd / capitalStart) * 100 : 0;
+
+    return {
+      trades: todayTrades.length,
+      wins,
+      losses,
+      pnlUsd,
+      pnlPct,
+      totalFeesUsd: totalFees,
+      avgHoldTimeSec: avgHold,
+      avgPnlPerTrade: todayTrades.length > 0 ? pnlUsd / todayTrades.length : 0,
+      bestTrade: best,
+      worstTrade: worst,
+      exitReasons,
+      tokensScanned,
+      capitalStart,
+      capitalEnd,
+    };
   }
 
   // ── Helpers ──

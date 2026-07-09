@@ -104,6 +104,25 @@ export interface TradeEvent {
   timestamp: number;
 }
 
+// ── Daily Summary ──
+
+export interface DailyStats {
+  trades: number;
+  wins: number;
+  losses: number;
+  pnlUsd: number;
+  pnlPct: number;
+  totalFeesUsd: number;
+  avgHoldTimeSec: number;
+  avgPnlPerTrade: number;
+  bestTrade: { symbol: string; pnlPct: number } | null;
+  worstTrade: { symbol: string; pnlPct: number } | null;
+  exitReasons: Record<string, number>;
+  tokensScanned: number;
+  capitalStart: number;
+  capitalEnd: number;
+}
+
 // ── Bot State ──
 
 export interface BotState {

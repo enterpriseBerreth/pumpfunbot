@@ -68,6 +68,32 @@ async function main(): Promise<void> {
   // Send startup alert
   await telegram.sendStartedAlert(CONFIG.STARTING_BUDGET_USD);
 
+  // ── 8pm MST Daily Summary Scheduler ──
+  // MST = UTC-7, so 8pm MST = 03:00 UTC next day
+  const scheduleDailySummary = () => {
+    const now = new Date();
+    const next = new Date(now);
+    next.setUTCHours(3, 0, 0, 0); // 03:00 UTC = 8pm MST
+    if (next.getTime() <= now.getTime()) {
+      next.setUTCDate(next.getUTCDate() + 1); // Already past 8pm MST today, schedule tomorrow
+    }
+    const msUntil = next.getTime() - now.getTime();
+    log.info(MODULE, `Daily summary scheduled in ${(msUntil / 3_600_000).toFixed(1)}h (8pm MST / 03:00 UTC)`);
+
+    setTimeout(async () => {
+      try {
+        const stats = trader.getDailyStats(scanner.getCandidateCount());
+        await telegram.sendDailySummary(stats);
+        log.success(MODULE, 'Daily summary sent to Telegram');
+      } catch (err) {
+        log.error(MODULE, `Failed to send daily summary: ${err}`);
+      }
+      // Re-schedule for the next day
+      scheduleDailySummary();
+    }, msUntil);
+  };
+  scheduleDailySummary();
+
   // Periodic status display
   const statusInterval = setInterval(() => {
     trader.printStatus();

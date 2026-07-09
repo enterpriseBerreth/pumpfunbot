@@ -130,6 +130,99 @@ export class TelegramAlert {
     await this.send(msg);
   }
 
+  // ── DAILY SUMMARY (8pm MST) ──
+
+  async sendDailySummary(stats: import('./types.js').DailyStats): Promise<void> {
+    const sign = stats.pnlUsd >= 0 ? '+' : '';
+    const winRate = stats.trades > 0 ? ((stats.wins / stats.trades) * 100).toFixed(0) : '0';
+    const avgHold = stats.avgHoldTimeSec < 60
+      ? `${stats.avgHoldTimeSec.toFixed(0)}s`
+      : `${(stats.avgHoldTimeSec / 60).toFixed(1)}m`;
+
+    // Generate insight based on today's data
+    const insight = this.generateInsight(stats);
+
+    const lines = [
+      `📊 *PUMPFUNBOT — DAILY SUMMARY*`,
+      ``,
+      `*Trades:* ${stats.trades}`,
+      `*PNL:* ${sign}$${stats.pnlUsd.toFixed(2)}`,
+      `*PNL:* ${sign}${stats.pnlPct.toFixed(2)}%`,
+      ``,
+      `*Wins:* ${stats.wins} | *Losses:* ${stats.losses} | *Win Rate:* ${winRate}%`,
+      `*Avg PNL/Trade:* ${sign}$${stats.avgPnlPerTrade.toFixed(2)}`,
+      `*Avg Hold Time:* ${avgHold}`,
+      `*Fees Paid:* $${stats.totalFeesUsd.toFixed(2)}`,
+    ];
+
+    if (stats.bestTrade) {
+      lines.push(`*Best Trade:* ${this.esc(stats.bestTrade.symbol)} (${stats.bestTrade.pnlPct >= 0 ? '+' : ''}${stats.bestTrade.pnlPct.toFixed(1)}%)`);
+    }
+    if (stats.worstTrade) {
+      lines.push(`*Worst Trade:* ${this.esc(stats.worstTrade.symbol)} (${stats.worstTrade.pnlPct >= 0 ? '+' : ''}${stats.worstTrade.pnlPct.toFixed(1)}%)`);
+    }
+
+    lines.push(
+      ``,
+      `*Capital:* $${stats.capitalStart.toFixed(2)} → $${stats.capitalEnd.toFixed(2)}`,
+      `*Tokens Scanned:* ${stats.tokensScanned}`,
+      ``,
+      `💡 *Insight:*`,
+      insight,
+      ``,
+      `${CONFIG.PAPER_TRADE ? '📝 Paper Trade' : '💰 LIVE'}`,
+    );
+
+    await this.send(lines.join('\n'));
+  }
+
+  private generateInsight(stats: import('./types.js').DailyStats): string {
+    if (stats.trades === 0) {
+      return 'No trades executed today. Consider lowering MIN\\_UNIQUE\\_BUYERS from 3 to 2, or increasing MAX\\_TOKEN\\_AGE to capture more candidates.';
+    }
+
+    const tips: string[] = [];
+    const winRate = stats.trades > 0 ? (stats.wins / stats.trades) * 100 : 0;
+
+    // Win rate analysis
+    if (winRate < 30) {
+      tips.push('Win rate is below 30%. Entry criteria may be too loose — consider requiring more unique buyers or a higher minimum market cap before entering.');
+    } else if (winRate < 50) {
+      tips.push('Win rate is below 50%. The stop loss may be triggering too early — consider widening it slightly, or waiting for stronger buy signals before entering.');
+    } else if (winRate >= 70) {
+      tips.push('Strong win rate above 70%. Strategy is filtering well — consider increasing trade size to capitalize on the edge.');
+    }
+
+    // Hold time analysis
+    if (stats.avgHoldTimeSec < 30) {
+      tips.push('Average hold time is very short. Positions may be getting stopped out too quickly — consider a wider initial stop loss or waiting for more price confirmation before buying.');
+    } else if (stats.avgHoldTimeSec > 1800) {
+      tips.push('Average hold time exceeds 30 minutes. Positions may be stagnating — consider tightening the stale exit timer to free up capital faster.');
+    }
+
+    // PNL analysis
+    if (stats.pnlUsd < 0 && stats.totalFeesUsd > Math.abs(stats.pnlUsd) * 0.5) {
+      tips.push('Fees are eating a large portion of PNL. Reducing trade frequency or increasing trade size could improve net returns.');
+    }
+
+    // Exit reason analysis
+    const reasons = stats.exitReasons;
+    const stopLosses = (reasons['Stop loss'] || 0) + (reasons['Trailing stop hit'] || 0);
+    if (stopLosses > stats.trades * 0.6) {
+      tips.push('Most exits are from stop losses. The tokens being selected may be too volatile — consider adding a minimum market cap filter or waiting for more buyers before entry.');
+    }
+    const staleExits = reasons['Stale exit'] || 0;
+    if (staleExits > stats.trades * 0.4) {
+      tips.push('Many stale exits. Tokens are not moving after entry — consider requiring stronger initial momentum (e.g., higher buy volume in the first 10 seconds).');
+    }
+
+    if (tips.length === 0) {
+      tips.push('Performance looks solid. Continue monitoring and consider gradually increasing position sizes if the win rate holds steady.');
+    }
+
+    return tips.join(' ');
+  }
+
   // ── BOT STARTED Alert ──
 
   async sendStartedAlert(budget: number): Promise<void> {
