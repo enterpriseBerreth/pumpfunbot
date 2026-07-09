@@ -55,16 +55,26 @@ export interface Position {
   symbol: string;
   name: string;
 
-  entryPriceSol: number;
+  // Prices (fill prices include slippage)
+  entryPriceSol: number;       // Actual fill price (market + slippage)
   entryPriceUsd: number;
+  entryMarketPriceSol: number; // Raw market price at time of buy
+  entryMarketPriceUsd: number;
   currentPriceSol: number;
   currentPriceUsd: number;
   highestPriceSol: number;
   highestPriceUsd: number;
 
-  initialSizeUsd: number;
-  remainingSizeUsd: number;
-  soldUsd: number;
+  // Token quantities (realistic tracking)
+  tokenAmount: number;         // Tokens acquired after fees+slippage
+  remainingTokens: number;     // Tokens still held
+
+  // USD tracking
+  initialSizeUsd: number;      // Gross amount spent ($10)
+  netInvestedUsd: number;      // Net after buy fees+slippage (what actually bought tokens)
+  remainingSizeUsd: number;    // Current USD value of remaining tokens
+  soldUsd: number;             // Total net proceeds from sells
+  totalFeesUsd: number;        // Total fees paid (buy + sell)
 
   entryTime: number;
   lastUpdate: number;
@@ -74,6 +84,7 @@ export interface Position {
   pnlPct: number;
 
   uniqueBuyersAtEntry: number;
+  marketCapAtEntry: number;
   capitalBeforeBuy: number;
 
   takeProfitLevelsHit: number[];

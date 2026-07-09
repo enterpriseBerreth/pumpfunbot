@@ -91,8 +91,15 @@ export class PumpFunScanner {
   async start(): Promise<void> {
     this.shouldRun = true;
 
-    // Fetch SOL price first
-    await updateSolPrice();
+    // Fetch SOL price with retries - critical for accurate USD values
+    for (let i = 0; i < 5; i++) {
+      const price = await updateSolPrice();
+      if (price !== 150) break; // Got a real price, not the fallback
+      if (i < 4) {
+        log.warn(MODULE, `SOL price fetch attempt ${i + 1} failed, retrying in 2s...`);
+        await new Promise((r) => setTimeout(r, 2_000));
+      }
+    }
 
     // Periodically update SOL price
     this.solPriceInterval = setInterval(() => updateSolPrice(), 60_000);

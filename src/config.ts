@@ -21,6 +21,13 @@ export const CONFIG = {
   WS_RECONNECT_DELAY_MS: 3_000,
   WS_MAX_RECONNECT_DELAY_MS: 30_000,
 
+  // ── Realistic Simulation (fees, slippage, priority) ──
+  PUMPFUN_FEE_PCT: 1,             // Pump.fun charges 1% per trade
+  BUY_SLIPPAGE_PCT: 2,            // Buying into bonding curve pushes price up ~2%
+  SELL_SLIPPAGE_PCT: 1.5,         // Selling into bonding curve pushes price down ~1.5%
+  SOLANA_TX_FEE_SOL: 0.000005,    // Base Solana transaction fee
+  PRIORITY_FEE_SOL: 0.005,        // Typical Jito/priority fee for fast inclusion
+
   // ── Exit Strategy ──
   // Sell at +50% to +100%, ride big winners
   TAKE_PROFIT_LEVELS: [

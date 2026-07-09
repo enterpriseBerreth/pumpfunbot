@@ -54,6 +54,80 @@ export class PaperTrader {
       .map((p) => p.mint);
   }
 
+  // ── Realistic Fill Simulation ──
+
+  private simulateBuyFill(marketPriceSol: number, sizeUsd: number): {
+    fillPriceSol: number;
+    fillPriceUsd: number;
+    tokensAcquired: number;
+    netInvestedUsd: number;
+    totalFeeUsd: number;
+  } {
+    const solPrice = getSolPrice();
+
+    // 1. Pump.fun 1% platform fee
+    const platformFeeUsd = sizeUsd * (CONFIG.PUMPFUN_FEE_PCT / 100);
+
+    // 2. Solana network fee + priority fee
+    const networkFeeUsd = (CONFIG.SOLANA_TX_FEE_SOL + CONFIG.PRIORITY_FEE_SOL) * solPrice;
+
+    // 3. Total fees
+    const totalFeeUsd = platformFeeUsd + networkFeeUsd;
+
+    // 4. Net USD that actually buys tokens
+    const netUsd = sizeUsd - totalFeeUsd;
+
+    // 5. Slippage: buying into bonding curve pushes price up
+    const fillPriceSol = marketPriceSol * (1 + CONFIG.BUY_SLIPPAGE_PCT / 100);
+    const fillPriceUsd = fillPriceSol * solPrice;
+
+    // 6. Tokens acquired at fill price
+    const tokensAcquired = netUsd / fillPriceUsd;
+
+    return {
+      fillPriceSol,
+      fillPriceUsd,
+      tokensAcquired,
+      netInvestedUsd: netUsd,
+      totalFeeUsd,
+    };
+  }
+
+  private simulateSellFill(marketPriceSol: number, tokensToSell: number): {
+    fillPriceSol: number;
+    fillPriceUsd: number;
+    grossProceedsUsd: number;
+    netProceedsUsd: number;
+    feeUsd: number;
+  } {
+    const solPrice = getSolPrice();
+
+    // 1. Slippage: selling into bonding curve pushes price down
+    const fillPriceSol = marketPriceSol * (1 - CONFIG.SELL_SLIPPAGE_PCT / 100);
+    const fillPriceUsd = fillPriceSol * solPrice;
+
+    // 2. Gross proceeds
+    const grossProceedsUsd = tokensToSell * fillPriceUsd;
+
+    // 3. Pump.fun platform fee
+    const platformFeeUsd = grossProceedsUsd * (CONFIG.PUMPFUN_FEE_PCT / 100);
+
+    // 4. Network fee
+    const networkFeeUsd = (CONFIG.SOLANA_TX_FEE_SOL + CONFIG.PRIORITY_FEE_SOL) * solPrice;
+
+    // 5. Net proceeds
+    const feeUsd = platformFeeUsd + networkFeeUsd;
+    const netProceedsUsd = grossProceedsUsd - feeUsd;
+
+    return {
+      fillPriceSol,
+      fillPriceUsd,
+      grossProceedsUsd,
+      netProceedsUsd,
+      feeUsd,
+    };
+  }
+
   // ── Buy Execution ──
 
   async executeBuy(candidate: TokenCandidate): Promise<void> {
@@ -69,7 +143,13 @@ export class PaperTrader {
       return;
     }
 
-    // Deduct from budget
+    const capitalBefore = this.state.budgetRemaining;
+    const solPrice = getSolPrice();
+
+    // Simulate realistic buy fill
+    const fill = this.simulateBuyFill(candidate.latestPriceSol, sizeUsd);
+
+    // Deduct full trade size from budget (user pays $10 total)
     this.state.budgetRemaining -= sizeUsd;
 
     const position: Position = {
@@ -78,29 +158,37 @@ export class PaperTrader {
       symbol: candidate.symbol,
       name: candidate.name,
 
-      entryPriceSol: candidate.latestPriceSol,
-      entryPriceUsd: candidate.latestPriceUsd,
+      entryPriceSol: fill.fillPriceSol,
+      entryPriceUsd: fill.fillPriceUsd,
+      entryMarketPriceSol: candidate.latestPriceSol,
+      entryMarketPriceUsd: candidate.latestPriceUsd,
       currentPriceSol: candidate.latestPriceSol,
       currentPriceUsd: candidate.latestPriceUsd,
       highestPriceSol: candidate.latestPriceSol,
       highestPriceUsd: candidate.latestPriceUsd,
 
+      tokenAmount: fill.tokensAcquired,
+      remainingTokens: fill.tokensAcquired,
+
       initialSizeUsd: sizeUsd,
-      remainingSizeUsd: sizeUsd,
+      netInvestedUsd: fill.netInvestedUsd,
+      remainingSizeUsd: fill.netInvestedUsd,
       soldUsd: 0,
+      totalFeesUsd: fill.totalFeeUsd,
 
       entryTime: Date.now(),
       lastUpdate: Date.now(),
 
       status: 'open',
-      pnlUsd: 0,
-      pnlPct: 0,
+      pnlUsd: -fill.totalFeeUsd, // Start negative (fees already paid)
+      pnlPct: (-fill.totalFeeUsd / sizeUsd) * 100,
 
       uniqueBuyersAtEntry: candidate.uniqueBuyers.size,
-      capitalBeforeBuy: this.state.budgetRemaining + sizeUsd,
+      marketCapAtEntry: candidate.latestMarketCapSol,
+      capitalBeforeBuy: capitalBefore,
 
       takeProfitLevelsHit: [],
-      trailingStopPriceSol: candidate.latestPriceSol * (1 - CONFIG.INITIAL_STOP_LOSS_PCT / 100),
+      trailingStopPriceSol: fill.fillPriceSol * (1 - CONFIG.INITIAL_STOP_LOSS_PCT / 100),
     };
 
     this.state.positions.set(candidate.mint, position);
@@ -110,29 +198,28 @@ export class PaperTrader {
       action: 'BUY',
       position,
       amountUsd: sizeUsd,
-      priceUsd: candidate.latestPriceUsd,
-      reason: `${candidate.uniqueBuyers.size} unique buyers | MCap: ${candidate.latestMarketCapSol.toFixed(2)} SOL`,
+      priceUsd: fill.fillPriceUsd,
+      reason: `${candidate.uniqueBuyers.size} buyers | MCap: ${candidate.latestMarketCapSol.toFixed(2)} SOL`,
       timestamp: Date.now(),
     };
     this.tradeLog.push(event);
 
-    const mCapUsd = candidate.latestMarketCapSol * getSolPrice();
+    const mCapUsd = candidate.latestMarketCapSol * solPrice;
 
     log.trade(
       MODULE,
-      `BUY ${candidate.symbol} @ $${this.fmtPrice(candidate.latestPriceUsd)} | Size: $${sizeUsd.toFixed(2)} | Buyers: ${candidate.uniqueBuyers.size} | MCap: $${mCapUsd.toFixed(0)} | Budget: $${this.state.budgetRemaining.toFixed(2)}`
+      `BUY ${candidate.symbol} @ $${this.fmtPrice(fill.fillPriceUsd)} (mkt $${this.fmtPrice(candidate.latestPriceUsd)} +${CONFIG.BUY_SLIPPAGE_PCT}% slip) | $${sizeUsd.toFixed(2)} - $${fill.totalFeeUsd.toFixed(2)} fees = ${fill.tokensAcquired.toFixed(0)} tokens | MCap: $${mCapUsd.toFixed(0)} | Budget: $${this.state.budgetRemaining.toFixed(2)}`
     );
 
-    // Send Telegram buy alert
     await this.telegram.sendBuyAlert({
       tokenName: `${candidate.symbol} (${candidate.name})`,
       mint: candidate.mint,
-      priceUsd: candidate.latestPriceUsd,
+      priceUsd: fill.fillPriceUsd,
       sizeUsd,
       uniqueBuyers: candidate.uniqueBuyers.size,
       marketCapUsd: mCapUsd,
       budgetRemaining: this.state.budgetRemaining,
-      capitalBeforeBuy: this.state.budgetRemaining + sizeUsd,
+      capitalBeforeBuy: capitalBefore,
     });
   }
 
@@ -152,10 +239,14 @@ export class PaperTrader {
       position.highestPriceUsd = priceUsd;
     }
 
-    // Recalculate PNL
-    const priceChangePct = ((priceSol - position.entryPriceSol) / position.entryPriceSol) * 100;
-    position.pnlPct = priceChangePct;
-    position.pnlUsd = position.remainingSizeUsd * (priceChangePct / 100);
+    // Recalculate position value and PNL based on actual token holdings
+    const currentValueUsd = position.remainingTokens * priceUsd;
+    position.remainingSizeUsd = currentValueUsd;
+
+    // Total PNL = all sell proceeds + current holdings value - initial investment
+    const totalValueUsd = position.soldUsd + currentValueUsd;
+    position.pnlUsd = totalValueUsd - position.initialSizeUsd;
+    position.pnlPct = (position.pnlUsd / position.initialSizeUsd) * 100;
 
     // Check exit conditions
     this.checkExits(position);
@@ -193,6 +284,7 @@ export class PaperTrader {
   private async checkExits(position: Position): Promise<void> {
     if (position.status === 'closed') return;
 
+    // Use market price vs fill entry price for exit decisions
     const pricePctFromEntry = ((position.currentPriceSol - position.entryPriceSol) / position.entryPriceSol) * 100;
     const holdTimeMs = Date.now() - position.entryTime;
     const holdTimeMin = holdTimeMs / 60_000;
@@ -201,20 +293,19 @@ export class PaperTrader {
     for (const level of CONFIG.TAKE_PROFIT_LEVELS) {
       if (position.takeProfitLevelsHit.includes(level.triggerPct)) continue;
       if (pricePctFromEntry >= level.triggerPct) {
-        const sellAmount = position.initialSizeUsd * (level.sellPct / 100);
-        const actualSell = Math.min(sellAmount, position.remainingSizeUsd);
-        if (actualSell <= 0) continue;
+        const sellTokens = position.tokenAmount * (level.sellPct / 100);
+        const actualSellTokens = Math.min(sellTokens, position.remainingTokens);
+        if (actualSellTokens <= 0) continue;
 
         position.takeProfitLevelsHit.push(level.triggerPct);
         await this.executePartialSell(
           position,
-          actualSell,
+          actualSellTokens,
           `Take profit @ +${level.triggerPct}%`
         );
 
-        // After all take-profit levels hit, tighten trailing stop for remaining "moon bag"
         if (position.takeProfitLevelsHit.length >= CONFIG.TAKE_PROFIT_LEVELS.length) {
-          const tightStop = position.highestPriceSol * 0.85; // 15% trail for moon bag
+          const tightStop = position.highestPriceSol * 0.85;
           if (tightStop > position.trailingStopPriceSol) {
             position.trailingStopPriceSol = tightStop;
             log.info(MODULE, `${position.symbol} - Moon bag trailing stop set @ $${this.fmtPrice(tightStop * getSolPrice())}`);
@@ -227,12 +318,12 @@ export class PaperTrader {
     this.updateTrailingStop(position, pricePctFromEntry);
 
     // ── 3. Check trailing stop hit ──
-    if (position.currentPriceSol <= position.trailingStopPriceSol && position.remainingSizeUsd > 0) {
-      await this.executeSell(position, `Trailing stop hit (price dropped to $${this.fmtPrice(position.currentPriceUsd)})`);
+    if (position.currentPriceSol <= position.trailingStopPriceSol && position.remainingTokens > 0) {
+      await this.executeSell(position, `Trailing stop hit`);
       return;
     }
 
-    // ── 4. Initial stop loss (before any profit taken) ──
+    // ── 4. Initial stop loss ──
     if (pricePctFromEntry <= -CONFIG.INITIAL_STOP_LOSS_PCT && position.takeProfitLevelsHit.length === 0) {
       await this.executeSell(position, `Stop loss: ${pricePctFromEntry.toFixed(1)}%`);
       return;
@@ -240,7 +331,7 @@ export class PaperTrader {
 
     // ── 5. Stale exit ──
     if (holdTimeMin >= CONFIG.STALE_EXIT_MINUTES && pricePctFromEntry < CONFIG.STALE_EXIT_MIN_GAIN_PCT) {
-      await this.executeSell(position, `Stale exit: +${pricePctFromEntry.toFixed(1)}% after ${holdTimeMin.toFixed(0)}m`);
+      await this.executeSell(position, `Stale exit after ${holdTimeMin.toFixed(0)}m`);
       return;
     }
 
@@ -273,24 +364,27 @@ export class PaperTrader {
     }
   }
 
-  // ── Sell Execution ──
+  // ── Full Sell ──
 
   private async executeSell(position: Position, reason: string): Promise<void> {
-    if (position.remainingSizeUsd <= 0) return;
+    if (position.remainingTokens <= 0) return;
 
-    const sellAmount = position.remainingSizeUsd;
-    const pnlOnSell = sellAmount * (position.pnlPct / 100);
-    const proceeds = sellAmount + pnlOnSell;
+    const tokensToSell = position.remainingTokens;
 
-    position.soldUsd += proceeds;
+    // Simulate realistic sell fill
+    const fill = this.simulateSellFill(position.currentPriceSol, tokensToSell);
+
+    position.soldUsd += fill.netProceedsUsd;
+    position.totalFeesUsd += fill.feeUsd;
+    position.remainingTokens = 0;
     position.remainingSizeUsd = 0;
     position.status = 'closed';
     position.exitReason = reason;
 
-    // Return proceeds to budget
-    this.state.budgetRemaining += proceeds;
+    // Return net proceeds to budget
+    this.state.budgetRemaining += fill.netProceedsUsd;
 
-    // Calculate total PNL for this position
+    // Final PNL = all proceeds - initial investment
     const totalPnl = position.soldUsd - position.initialSizeUsd;
     const totalPnlPct = (totalPnl / position.initialSizeUsd) * 100;
     position.pnlUsd = totalPnl;
@@ -306,25 +400,24 @@ export class PaperTrader {
 
     log.trade(
       MODULE,
-      `SELL ${position.symbol} @ $${this.fmtPrice(position.currentPriceUsd)} | PNL: ${sign}$${totalPnl.toFixed(2)} (${sign}${totalPnlPct.toFixed(1)}%) | ${reason} | Hold: ${holdTime}`
+      `SELL ${position.symbol} @ $${this.fmtPrice(fill.fillPriceUsd)} (mkt $${this.fmtPrice(position.currentPriceUsd)} -${CONFIG.SELL_SLIPPAGE_PCT}% slip) | Fees: $${fill.feeUsd.toFixed(2)} | PNL: ${sign}$${totalPnl.toFixed(2)} (${sign}${totalPnlPct.toFixed(1)}%) | ${reason} | Hold: ${holdTime}`
     );
 
     const event: TradeEvent = {
       action: 'SELL',
       position,
-      amountUsd: sellAmount,
-      priceUsd: position.currentPriceUsd,
+      amountUsd: fill.netProceedsUsd,
+      priceUsd: fill.fillPriceUsd,
       reason,
       timestamp: Date.now(),
     };
     this.tradeLog.push(event);
 
-    // Telegram alert
     await this.telegram.sendSellAlert({
       tokenName: `${position.symbol} (${position.name})`,
       mint: position.mint,
       entryPriceUsd: position.entryPriceUsd,
-      exitPriceUsd: position.currentPriceUsd,
+      exitPriceUsd: fill.fillPriceUsd,
       pnlUsd: totalPnl,
       pnlPct: totalPnlPct,
       holdTime,
@@ -336,47 +429,53 @@ export class PaperTrader {
     });
   }
 
-  private async executePartialSell(position: Position, amountUsd: number, reason: string): Promise<void> {
-    const pnlOnSell = amountUsd * (position.pnlPct / 100);
-    const proceeds = amountUsd + pnlOnSell;
+  // ── Partial Sell ──
 
-    position.soldUsd += proceeds;
-    position.remainingSizeUsd -= amountUsd;
-    position.status = position.remainingSizeUsd > 0 ? 'partial' : 'closed';
+  private async executePartialSell(position: Position, tokensToSell: number, reason: string): Promise<void> {
+    // Simulate realistic sell fill
+    const fill = this.simulateSellFill(position.currentPriceSol, tokensToSell);
 
-    // Return proceeds to budget
-    this.state.budgetRemaining += proceeds;
-    this.state.totalPnl += pnlOnSell;
+    position.soldUsd += fill.netProceedsUsd;
+    position.totalFeesUsd += fill.feeUsd;
+    position.remainingTokens -= tokensToSell;
+    position.remainingSizeUsd = position.remainingTokens * position.currentPriceUsd;
+    position.status = position.remainingTokens > 0 ? 'partial' : 'closed';
+
+    // Return net proceeds to budget
+    this.state.budgetRemaining += fill.netProceedsUsd;
+
+    // Running PNL
+    const runningPnl = fill.netProceedsUsd - (position.initialSizeUsd * (tokensToSell / position.tokenAmount));
+    this.state.totalPnl += runningPnl;
 
     const holdTime = this.formatHoldTime(Date.now() - position.entryTime);
-    const sign = pnlOnSell >= 0 ? '+' : '';
+    const pnlPctFromEntry = ((position.currentPriceSol - position.entryPriceSol) / position.entryPriceSol) * 100;
 
     log.trade(
       MODULE,
-      `PARTIAL SELL ${position.symbol} ($${amountUsd.toFixed(2)}) @ $${this.fmtPrice(position.currentPriceUsd)} | PNL: ${sign}$${pnlOnSell.toFixed(2)} | Remaining: $${position.remainingSizeUsd.toFixed(2)} | ${reason}`
+      `PARTIAL SELL ${position.symbol} (${tokensToSell.toFixed(0)} tokens) @ $${this.fmtPrice(fill.fillPriceUsd)} | Net: $${fill.netProceedsUsd.toFixed(2)} | Remaining: ${position.remainingTokens.toFixed(0)} tokens ($${position.remainingSizeUsd.toFixed(2)}) | ${reason}`
     );
 
     const event: TradeEvent = {
       action: 'PARTIAL_SELL',
       position,
-      amountUsd,
-      priceUsd: position.currentPriceUsd,
+      amountUsd: fill.netProceedsUsd,
+      priceUsd: fill.fillPriceUsd,
       reason,
       timestamp: Date.now(),
     };
     this.tradeLog.push(event);
 
-    // Telegram alert for partial sell
     await this.telegram.sendPartialSellAlert({
       tokenName: `${position.symbol} (${position.name})`,
       mint: position.mint,
       entryPriceUsd: position.entryPriceUsd,
-      soldUsd: amountUsd,
-      proceedsUsd: proceeds,
-      pnlOnSell,
+      soldUsd: fill.grossProceedsUsd,
+      proceedsUsd: fill.netProceedsUsd,
+      pnlOnSell: runningPnl,
       remainingUsd: position.remainingSizeUsd,
-      currentPriceUsd: position.currentPriceUsd,
-      pnlPctFromEntry: position.pnlPct,
+      currentPriceUsd: fill.fillPriceUsd,
+      pnlPctFromEntry,
       reason,
       capitalBefore: position.capitalBeforeBuy,
       capitalAfter: this.state.budgetRemaining,
@@ -403,13 +502,14 @@ export class PaperTrader {
     const sign = this.state.totalPnl >= 0 ? '+' : '';
 
     log.banner('PUMPFUNBOT STATUS');
-    console.log(`  Mode:            ${CONFIG.PAPER_TRADE ? 'PAPER TRADE' : 'LIVE'}`);
+    console.log(`  Mode:            ${CONFIG.PAPER_TRADE ? 'PAPER TRADE (realistic sim)' : 'LIVE'}`);
     console.log(`  Runtime:         ${runtime}`);
     console.log(`  Budget:          $${this.state.budgetRemaining.toFixed(2)} / $${CONFIG.STARTING_BUDGET_USD}`);
     console.log(`  Total PNL:       ${sign}$${this.state.totalPnl.toFixed(2)}`);
     console.log(`  Trades:          ${this.state.tradesExecuted} (W: ${this.wins} / L: ${this.losses} | ${winRate.toFixed(0)}%)`);
     console.log(`  Open positions:  ${open.length} / ${CONFIG.MAX_CONCURRENT_TRADES}`);
     console.log(`  SOL Price:       $${getSolPrice().toFixed(2)}`);
+    console.log(`  Sim fees:        ${CONFIG.PUMPFUN_FEE_PCT}% + ${CONFIG.BUY_SLIPPAGE_PCT}% buy slip / ${CONFIG.SELL_SLIPPAGE_PCT}% sell slip`);
 
     if (open.length > 0) {
       console.log(`\n  Open Positions:`);
@@ -417,8 +517,9 @@ export class PaperTrader {
         const sign = p.pnlPct >= 0 ? '+' : '';
         const holdTime = this.formatHoldTime(Date.now() - p.entryTime);
         const tpHit = p.takeProfitLevelsHit.length;
+        const tokenVal = (p.remainingTokens * p.currentPriceUsd).toFixed(2);
         console.log(
-          `    ${p.symbol.padEnd(10)} | Entry: $${this.fmtPrice(p.entryPriceUsd)} | Now: $${this.fmtPrice(p.currentPriceUsd)} | PNL: ${sign}${p.pnlPct.toFixed(1)}% | TP: ${tpHit}/${CONFIG.TAKE_PROFIT_LEVELS.length} | Hold: ${holdTime}`
+          `    ${p.symbol.padEnd(10)} | Entry: $${this.fmtPrice(p.entryPriceUsd)} | Now: $${this.fmtPrice(p.currentPriceUsd)} | Val: $${tokenVal} | PNL: ${sign}${p.pnlPct.toFixed(1)}% | TP: ${tpHit}/${CONFIG.TAKE_PROFIT_LEVELS.length} | Hold: ${holdTime}`
         );
       }
     }
