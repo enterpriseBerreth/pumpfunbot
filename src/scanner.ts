@@ -127,7 +127,7 @@ export class PumpFunScanner {
     this.shouldRun = true;
 
     if (this.hasApiKey) {
-      log.success(MODULE, 'PumpPortal API key detected — using real-time trade events');
+      log.success(MODULE, 'PumpPortal API key detected — using real-time trade events + HTTP polling backup');
     } else {
       log.warn(MODULE, 'No PumpPortal API key — using HTTP polling for trade data (free mode)');
     }
@@ -148,10 +148,9 @@ export class PumpFunScanner {
     // Periodically clean up stale candidates
     this.cleanupInterval = setInterval(() => this.cleanupCandidates(), 30_000);
 
-    // If no API key, start polling loop for trade data
-    if (!this.hasApiKey) {
-      this.startPolling();
-    }
+    // Always start polling - it's the reliable fallback even with API key
+    // (API key trade subscriptions require funded wallet)
+    this.startPolling();
 
     // Connect to WebSocket
     this.connect();
