@@ -37,6 +37,8 @@ export interface TokenCandidate {
   uniqueBuyers: Set<string>;
   buyCount: number;
   sellCount: number;
+  devSold: boolean;              // True if dev wallet has sold
+  initialMarketCapSol: number;   // Market cap at creation
   latestMarketCapSol: number;
   latestPriceSol: number;
   latestPriceUsd: number;
@@ -87,8 +89,9 @@ export interface Position {
   marketCapAtEntry: number;
   capitalBeforeBuy: number;
 
-  takeProfitLevelsHit: number[];
-  trailingStopPriceSol: number;
+  // Smart tracking
+  previousPriceSol: number;      // Previous price update (for velocity)
+  peakGainPct: number;           // Highest PNL % reached
 
   exitReason?: string;
 }

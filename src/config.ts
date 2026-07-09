@@ -5,57 +5,50 @@ export const CONFIG = {
   PAPER_TRADE: process.env.PAPER_TRADE !== 'false',
 
   // ── Budget ──
-  STARTING_BUDGET_USD: 100,
+  STARTING_BUDGET_USD: 1000,
   TRADE_SIZE_USD: 10,
-  MAX_CONCURRENT_TRADES: 5,
+  MAX_CONCURRENT_TRADES: 10,
 
   // ── Pump.fun Entry Criteria ──
   MIN_UNIQUE_BUYERS: 3,          // Excluding the developer wallet
   MIN_TOKEN_AGE_SECONDS: 10,     // Token must be at least 10 seconds old
   MAX_TOKEN_AGE_SECONDS: 300,    // Don't buy tokens older than 5 minutes
+  MIN_BUY_SELL_RATIO: 2.0,       // At least 2x more buys than sells
+  MIN_MCAP_GROWTH_PCT: 5,        // Market cap must have grown 5% from creation
+  SKIP_IF_DEV_SOLD: true,        // Skip tokens where dev has already sold
 
   // ── Scanner ──
   PUMPPORTAL_API_KEY: process.env.PUMPPORTAL_API_KEY || '',
   PUMPFUN_WS_URL: 'wss://pumpportal.fun/api/data',
   PUMPFUN_API_BASE: 'https://frontend-api-v3.pump.fun',
   DEXSCREENER_API_BASE: 'https://api.dexscreener.com',
-  POLL_INTERVAL_MS: 4_000,         // How often to poll Pump.fun API for trade data (no API key mode)
+  POLL_INTERVAL_MS: 4_000,
   PRICE_CHECK_INTERVAL_MS: 3_000,
-  CANDIDATE_TIMEOUT_MS: 120_000,   // Stop tracking unqualified candidates after 2 min
+  CANDIDATE_TIMEOUT_MS: 120_000,
   WS_RECONNECT_DELAY_MS: 3_000,
   WS_MAX_RECONNECT_DELAY_MS: 30_000,
 
   // ── Realistic Simulation (fees, slippage, priority) ──
-  PUMPFUN_FEE_PCT: 1,             // Pump.fun charges 1% per trade
-  BUY_SLIPPAGE_PCT: 2,            // Buying into bonding curve pushes price up ~2%
-  SELL_SLIPPAGE_PCT: 1.5,         // Selling into bonding curve pushes price down ~1.5%
-  SOLANA_TX_FEE_SOL: 0.000005,    // Base Solana transaction fee
-  PRIORITY_FEE_SOL: 0.005,        // Typical Jito/priority fee for fast inclusion
+  PUMPFUN_FEE_PCT: 1,
+  BUY_SLIPPAGE_PCT: 2,
+  SELL_SLIPPAGE_PCT: 1.5,
+  SOLANA_TX_FEE_SOL: 0.000005,
+  PRIORITY_FEE_SOL: 0.005,
 
-  // ── Exit Strategy ──
-  // Sell at +50% to +100%, ride big winners
-  TAKE_PROFIT_LEVELS: [
-    { triggerPct: 50, sellPct: 30 },    // At +50%, sell 30% of position
-    { triggerPct: 75, sellPct: 25 },    // At +75%, sell 25% of position
-    { triggerPct: 100, sellPct: 20 },   // At +100%, sell 20% of position
-    // Remaining 25% rides with trailing stop for big winners
-  ],
-  TRAILING_STOP_TIERS: [
-    { activateAbovePct: 30,  trailDistancePct: 25 },  // Early profit: wide trail
-    { activateAbovePct: 100, trailDistancePct: 18 },   // Solid gain: tighten
-    { activateAbovePct: 250, trailDistancePct: 15 },   // Big winner: tighter
-    { activateAbovePct: 500, trailDistancePct: 10 },   // Moonshot: lock in
-    { activateAbovePct: 1000, trailDistancePct: 8 },   // Parabolic: very tight
-  ],
-  INITIAL_STOP_LOSS_PCT: 35,
-  MAX_HOLD_TIME_MINUTES: 60,
-  STALE_EXIT_MINUTES: 15,
+  // ── Exit Strategy (simple + smart) ──
+  TAKE_PROFIT_PCT: 50,              // Sell everything at +50%
+  STOP_LOSS_PCT: 25,                // Hard stop at -25%
+  COLLAPSE_DROP_FROM_PEAK_PCT: 15,  // If price drops 15% from its high...
+  COLLAPSE_MIN_GAIN_PCT: 5,         // ...and we were up at least 5%, sell to protect
+  RAPID_DUMP_PCT: 10,               // If price drops 10% in a single update, instant sell
+  STALE_EXIT_MINUTES: 10,           // Flat for 10 min with <10% gain = exit
   STALE_EXIT_MIN_GAIN_PCT: 10,
+  MAX_HOLD_TIME_MINUTES: 30,        // Pump.fun tokens don't hold - 30 min max
 
   // ── Price Feed ──
   JUPITER_PRICE_API: 'https://api.jup.ag/price/v2',
   SOL_MINT: 'So11111111111111111111111111111111111111112',
-  PUMPFUN_TOTAL_SUPPLY: 1_000_000_000, // All pump.fun tokens have 1B supply
+  PUMPFUN_TOTAL_SUPPLY: 1_000_000_000,
 
   // ── Telegram ──
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN || '',

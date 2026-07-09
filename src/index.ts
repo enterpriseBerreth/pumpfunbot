@@ -17,9 +17,11 @@ async function main(): Promise<void> {
   console.log(`  Max Concurrent:    ${CONFIG.MAX_CONCURRENT_TRADES}`);
   console.log(`  Min Buyers:        ${CONFIG.MIN_UNIQUE_BUYERS} (excl. dev)`);
   console.log(`  Min Token Age:     ${CONFIG.MIN_TOKEN_AGE_SECONDS}s`);
-  console.log(`  Take Profit:       ${CONFIG.TAKE_PROFIT_LEVELS.map((l) => `+${l.triggerPct}%`).join(', ')}`);
-  console.log(`  Stop Loss:         -${CONFIG.INITIAL_STOP_LOSS_PCT}%`);
-  console.log(`  Trailing Stops:    ${CONFIG.TRAILING_STOP_TIERS.map((t) => `+${t.activateAbovePct}%/${t.trailDistancePct}%`).join(', ')}`);
+  console.log(`  Take Profit:       +${CONFIG.TAKE_PROFIT_PCT}%`);
+  console.log(`  Stop Loss:         -${CONFIG.STOP_LOSS_PCT}%`);
+  console.log(`  Collapse Detect:   -${CONFIG.COLLAPSE_DROP_FROM_PEAK_PCT}% from peak (if was +${CONFIG.COLLAPSE_MIN_GAIN_PCT}%+)`);
+  console.log(`  Rapid Dump Exit:   -${CONFIG.RAPID_DUMP_PCT}% in single update`);
+  console.log(`  Smart Filters:     Buy/Sell ratio ${CONFIG.MIN_BUY_SELL_RATIO}:1, MCap growth ${CONFIG.MIN_MCAP_GROWTH_PCT}%, Skip dev sells: ${CONFIG.SKIP_IF_DEV_SOLD}`);
   console.log('');
 
   if (!CONFIG.PAPER_TRADE) {

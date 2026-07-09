@@ -187,8 +187,8 @@ export class PaperTrader {
       marketCapAtEntry: candidate.latestMarketCapSol,
       capitalBeforeBuy: capitalBefore,
 
-      takeProfitLevelsHit: [],
-      trailingStopPriceSol: fill.fillPriceSol * (1 - CONFIG.INITIAL_STOP_LOSS_PCT / 100),
+      previousPriceSol: candidate.latestPriceSol,
+      peakGainPct: 0,
     };
 
     this.state.positions.set(candidate.mint, position);
@@ -220,6 +220,9 @@ export class PaperTrader {
     const position = this.state.positions.get(mint);
     if (!position || position.status === 'closed') return;
 
+    // Save previous price for velocity detection
+    position.previousPriceSol = position.currentPriceSol;
+
     position.currentPriceSol = priceSol;
     position.currentPriceUsd = priceUsd;
     position.lastUpdate = Date.now();
@@ -230,11 +233,15 @@ export class PaperTrader {
       position.highestPriceUsd = priceUsd;
     }
 
-    // Recalculate position value and PNL based on actual token holdings
+    // Track peak gain %
+    const gainPct = ((priceSol - position.entryPriceSol) / position.entryPriceSol) * 100;
+    if (gainPct > position.peakGainPct) {
+      position.peakGainPct = gainPct;
+    }
+
+    // Recalculate position value and PNL
     const currentValueUsd = position.remainingTokens * priceUsd;
     position.remainingSizeUsd = currentValueUsd;
-
-    // Total PNL = all sell proceeds + current holdings value - initial investment
     const totalValueUsd = position.soldUsd + currentValueUsd;
     position.pnlUsd = totalValueUsd - position.initialSizeUsd;
     position.pnlPct = (position.pnlUsd / position.initialSizeUsd) * 100;
@@ -270,88 +277,58 @@ export class PaperTrader {
     }
   }
 
-  // ── Exit Logic ──
+  // ── Smart Exit Logic ──
 
   private async checkExits(position: Position): Promise<void> {
     if (position.status === 'closed') return;
 
-    // Use market price vs fill entry price for exit decisions
-    const pricePctFromEntry = ((position.currentPriceSol - position.entryPriceSol) / position.entryPriceSol) * 100;
-    const holdTimeMs = Date.now() - position.entryTime;
-    const holdTimeMin = holdTimeMs / 60_000;
+    const gainPct = ((position.currentPriceSol - position.entryPriceSol) / position.entryPriceSol) * 100;
+    const holdTimeMin = (Date.now() - position.entryTime) / 60_000;
 
-    // ── 1. Take-profit levels ──
-    for (const level of CONFIG.TAKE_PROFIT_LEVELS) {
-      if (position.takeProfitLevelsHit.includes(level.triggerPct)) continue;
-      if (pricePctFromEntry >= level.triggerPct) {
-        const sellTokens = position.tokenAmount * (level.sellPct / 100);
-        const actualSellTokens = Math.min(sellTokens, position.remainingTokens);
-        if (actualSellTokens <= 0) continue;
+    // How far has price dropped from its peak?
+    const dropFromPeakPct = position.highestPriceSol > 0
+      ? ((position.highestPriceSol - position.currentPriceSol) / position.highestPriceSol) * 100
+      : 0;
 
-        position.takeProfitLevelsHit.push(level.triggerPct);
-        await this.executePartialSell(
-          position,
-          actualSellTokens,
-          `Take profit @ +${level.triggerPct}%`
-        );
+    // Rapid dump detection: how much did price drop since last update?
+    const lastMovePct = position.previousPriceSol > 0
+      ? ((position.previousPriceSol - position.currentPriceSol) / position.previousPriceSol) * 100
+      : 0;
 
-        if (position.takeProfitLevelsHit.length >= CONFIG.TAKE_PROFIT_LEVELS.length) {
-          const tightStop = position.highestPriceSol * 0.85;
-          if (tightStop > position.trailingStopPriceSol) {
-            position.trailingStopPriceSol = tightStop;
-            log.info(MODULE, `${position.symbol} - Moon bag trailing stop set @ $${this.fmtPrice(tightStop * getSolPrice())}`);
-          }
-        }
-      }
-    }
-
-    // ── 2. Update trailing stop ──
-    this.updateTrailingStop(position, pricePctFromEntry);
-
-    // ── 3. Check trailing stop hit ──
-    if (position.currentPriceSol <= position.trailingStopPriceSol && position.remainingTokens > 0) {
-      await this.executeSell(position, `Trailing stop hit`);
+    // ── 1. Take profit at +50% → full sell ──
+    if (gainPct >= CONFIG.TAKE_PROFIT_PCT) {
+      await this.executeSell(position, `Take profit: +${gainPct.toFixed(1)}%`);
       return;
     }
 
-    // ── 4. Initial stop loss ──
-    if (pricePctFromEntry <= -CONFIG.INITIAL_STOP_LOSS_PCT && position.takeProfitLevelsHit.length === 0) {
-      await this.executeSell(position, `Stop loss: ${pricePctFromEntry.toFixed(1)}%`);
+    // ── 2. Rapid dump: price dropped 10%+ in a single update → instant sell ──
+    if (lastMovePct >= CONFIG.RAPID_DUMP_PCT) {
+      await this.executeSell(position, `Rapid dump: -${lastMovePct.toFixed(1)}% in one update`);
       return;
     }
 
-    // ── 5. Stale exit ──
-    if (holdTimeMin >= CONFIG.STALE_EXIT_MINUTES && pricePctFromEntry < CONFIG.STALE_EXIT_MIN_GAIN_PCT) {
-      await this.executeSell(position, `Stale exit after ${holdTimeMin.toFixed(0)}m`);
+    // ── 3. Collapse detection: price dropped 15% from peak while we were up 5%+ ──
+    if (dropFromPeakPct >= CONFIG.COLLAPSE_DROP_FROM_PEAK_PCT && position.peakGainPct >= CONFIG.COLLAPSE_MIN_GAIN_PCT) {
+      await this.executeSell(position, `Collapse: -${dropFromPeakPct.toFixed(1)}% from peak (was +${position.peakGainPct.toFixed(1)}%)`);
+      return;
+    }
+
+    // ── 4. Hard stop loss at -25% ──
+    if (gainPct <= -CONFIG.STOP_LOSS_PCT) {
+      await this.executeSell(position, `Stop loss: ${gainPct.toFixed(1)}%`);
+      return;
+    }
+
+    // ── 5. Stale exit: flat for 10 min with <10% gain ──
+    if (holdTimeMin >= CONFIG.STALE_EXIT_MINUTES && gainPct < CONFIG.STALE_EXIT_MIN_GAIN_PCT) {
+      await this.executeSell(position, `Stale: ${holdTimeMin.toFixed(0)}m with only ${gainPct.toFixed(1)}%`);
       return;
     }
 
     // ── 6. Max hold time ──
     if (holdTimeMin >= CONFIG.MAX_HOLD_TIME_MINUTES) {
-      await this.executeSell(position, `Max hold time (${CONFIG.MAX_HOLD_TIME_MINUTES}m)`);
+      await this.executeSell(position, `Max hold (${CONFIG.MAX_HOLD_TIME_MINUTES}m)`);
       return;
-    }
-  }
-
-  private updateTrailingStop(position: Position, pricePctFromEntry: number): void {
-    let bestTier = null;
-    for (const tier of CONFIG.TRAILING_STOP_TIERS) {
-      if (pricePctFromEntry >= tier.activateAbovePct) {
-        bestTier = tier;
-      }
-    }
-
-    if (!bestTier) return;
-
-    const newStop = position.highestPriceSol * (1 - bestTier.trailDistancePct / 100);
-    if (newStop > position.trailingStopPriceSol) {
-      const oldStopUsd = position.trailingStopPriceSol * getSolPrice();
-      const newStopUsd = newStop * getSolPrice();
-      position.trailingStopPriceSol = newStop;
-      log.info(
-        MODULE,
-        `${position.symbol} - Trail raised: $${this.fmtPrice(oldStopUsd)} -> $${this.fmtPrice(newStopUsd)} (${bestTier.trailDistancePct}% from peak at +${pricePctFromEntry.toFixed(0)}%)`
-      );
     }
   }
 
@@ -413,46 +390,6 @@ export class PaperTrader {
     });
   }
 
-  // ── Partial Sell ──
-
-  private async executePartialSell(position: Position, tokensToSell: number, reason: string): Promise<void> {
-    // Simulate realistic sell fill
-    const fill = this.simulateSellFill(position.currentPriceSol, tokensToSell);
-
-    position.soldUsd += fill.netProceedsUsd;
-    position.totalFeesUsd += fill.feeUsd;
-    position.remainingTokens -= tokensToSell;
-    position.remainingSizeUsd = position.remainingTokens * position.currentPriceUsd;
-    position.status = position.remainingTokens > 0 ? 'partial' : 'closed';
-
-    // Return net proceeds to budget
-    this.state.budgetRemaining += fill.netProceedsUsd;
-
-    // Running PNL
-    const runningPnl = fill.netProceedsUsd - (position.initialSizeUsd * (tokensToSell / position.tokenAmount));
-    this.state.totalPnl += runningPnl;
-
-    const holdTime = this.formatHoldTime(Date.now() - position.entryTime);
-    const pnlPctFromEntry = ((position.currentPriceSol - position.entryPriceSol) / position.entryPriceSol) * 100;
-
-    log.trade(
-      MODULE,
-      `PARTIAL SELL ${position.symbol} (${tokensToSell.toFixed(0)} tokens) @ $${this.fmtPrice(fill.fillPriceUsd)} | Net: $${fill.netProceedsUsd.toFixed(2)} | Remaining: ${position.remainingTokens.toFixed(0)} tokens ($${position.remainingSizeUsd.toFixed(2)}) | ${reason}`
-    );
-
-    const event: TradeEvent = {
-      action: 'PARTIAL_SELL',
-      position,
-      amountUsd: fill.netProceedsUsd,
-      priceUsd: fill.fillPriceUsd,
-      reason,
-      timestamp: Date.now(),
-    };
-    this.tradeLog.push(event);
-
-    // No Telegram alert on partial sell — only alert after final sell
-  }
-
   // ── Status & Reporting ──
 
   getOpenPositions(): Position[] {
@@ -487,10 +424,10 @@ export class PaperTrader {
       for (const p of open) {
         const sign = p.pnlPct >= 0 ? '+' : '';
         const holdTime = this.formatHoldTime(Date.now() - p.entryTime);
-        const tpHit = p.takeProfitLevelsHit.length;
         const tokenVal = (p.remainingTokens * p.currentPriceUsd).toFixed(2);
+        const peakStr = p.peakGainPct > 0 ? ` | Peak: +${p.peakGainPct.toFixed(1)}%` : '';
         console.log(
-          `    ${p.symbol.padEnd(10)} | Entry: $${this.fmtPrice(p.entryPriceUsd)} | Now: $${this.fmtPrice(p.currentPriceUsd)} | Val: $${tokenVal} | PNL: ${sign}${p.pnlPct.toFixed(1)}% | TP: ${tpHit}/${CONFIG.TAKE_PROFIT_LEVELS.length} | Hold: ${holdTime}`
+          `    ${p.symbol.padEnd(10)} | Entry: $${this.fmtPrice(p.entryPriceUsd)} | Now: $${this.fmtPrice(p.currentPriceUsd)} | Val: $${tokenVal} | PNL: ${sign}${p.pnlPct.toFixed(1)}%${peakStr} | Hold: ${holdTime}`
         );
       }
     }

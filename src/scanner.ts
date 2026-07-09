@@ -308,6 +308,8 @@ export class PumpFunScanner {
       uniqueBuyers: new Set<string>(),
       buyCount: 0,
       sellCount: 0,
+      devSold: false,
+      initialMarketCapSol: token.marketCapSol,
       latestMarketCapSol: token.marketCapSol,
       latestPriceSol: priceSol,
       latestPriceUsd: priceUsd,
@@ -363,6 +365,9 @@ export class PumpFunScanner {
       ) || 0.01;
     } else {
       candidate.sellCount++;
+      if (trade.traderPublicKey === candidate.devWallet) {
+        candidate.devSold = true;
+      }
     }
 
     this.checkQualification(candidate);
@@ -412,24 +417,33 @@ export class PumpFunScanner {
       // Try Pump.fun Frontend API first
       const trades = await this.fetchPumpFunTrades(candidate.mint);
       if (trades !== null) {
-        // Count unique buyers excluding dev
         const uniqueBuyers = new Set<string>();
         let latestMcap = candidate.latestMarketCapSol;
+        let buyCount = 0;
+        let sellCount = 0;
+        let devSold = false;
 
         for (const trade of trades) {
-          if (trade.is_buy && trade.user !== candidate.devWallet) {
-            uniqueBuyers.add(trade.user);
+          if (trade.is_buy) {
+            buyCount++;
+            if (trade.user !== candidate.devWallet) {
+              uniqueBuyers.add(trade.user);
+            }
+          } else {
+            sellCount++;
+            if (trade.user === candidate.devWallet) {
+              devSold = true;
+            }
           }
-          // Update price from most recent trade
-          if (trade.sol_amount && trade.token_amount) {
-            // Use the last trade's data for market cap
-            latestMcap = trade.market_cap || latestMcap;
+          if (trade.market_cap && trade.market_cap > 0) {
+            latestMcap = trade.market_cap;
           }
         }
 
         candidate.uniqueBuyers = uniqueBuyers;
-        candidate.buyCount = trades.filter((t: PumpFunApiTrade) => t.is_buy).length;
-        candidate.sellCount = trades.filter((t: PumpFunApiTrade) => !t.is_buy).length;
+        candidate.buyCount = buyCount;
+        candidate.sellCount = sellCount;
+        candidate.devSold = devSold;
 
         if (latestMcap > 0) {
           candidate.latestMarketCapSol = latestMcap;
@@ -542,7 +556,7 @@ export class PumpFunScanner {
     }
   }
 
-  // ── Qualification Check ──
+  // ── Smart Qualification Check ──
 
   private checkQualification(candidate: TokenCandidate): void {
     if (candidate.qualified) return;
@@ -550,20 +564,46 @@ export class PumpFunScanner {
     const ageSec = (Date.now() - candidate.createdAt) / 1000;
     const uniqueBuyerCount = candidate.uniqueBuyers.size;
 
-    if (
-      uniqueBuyerCount >= CONFIG.MIN_UNIQUE_BUYERS &&
-      ageSec >= CONFIG.MIN_TOKEN_AGE_SECONDS &&
-      ageSec <= CONFIG.MAX_TOKEN_AGE_SECONDS
-    ) {
-      candidate.qualified = true;
+    // Basic requirements
+    if (uniqueBuyerCount < CONFIG.MIN_UNIQUE_BUYERS) return;
+    if (ageSec < CONFIG.MIN_TOKEN_AGE_SECONDS) return;
+    if (ageSec > CONFIG.MAX_TOKEN_AGE_SECONDS) return;
 
-      log.success(
-        MODULE,
-        `QUALIFIED: ${candidate.symbol} | Buyers: ${uniqueBuyerCount} (excl. dev) | Age: ${ageSec.toFixed(0)}s | MCap: ${candidate.latestMarketCapSol.toFixed(2)} SOL ($${(candidate.latestMarketCapSol * solPriceUsd).toFixed(0)})`
-      );
-
-      this.onQualifiedToken?.(candidate);
+    // ── Smart Filter 1: Skip if dev has sold (rug risk) ──
+    if (CONFIG.SKIP_IF_DEV_SOLD && candidate.devSold) {
+      log.info(MODULE, `SKIP ${candidate.symbol}: dev already sold (rug risk)`);
+      candidate.qualified = true; // Mark to stop re-checking
+      return;
     }
+
+    // ── Smart Filter 2: Buy/sell ratio (momentum check) ──
+    const buySellRatio = candidate.sellCount > 0
+      ? candidate.buyCount / candidate.sellCount
+      : candidate.buyCount;
+    if (buySellRatio < CONFIG.MIN_BUY_SELL_RATIO) {
+      return; // Don't log, just wait — ratio might improve
+    }
+
+    // ── Smart Filter 3: Market cap must have grown from creation ──
+    if (candidate.initialMarketCapSol > 0) {
+      const mcapGrowthPct = ((candidate.latestMarketCapSol - candidate.initialMarketCapSol) / candidate.initialMarketCapSol) * 100;
+      if (mcapGrowthPct < CONFIG.MIN_MCAP_GROWTH_PCT) {
+        return; // Market cap hasn't grown enough yet
+      }
+    }
+
+    // ── All filters passed → qualified ──
+    candidate.qualified = true;
+    const buySellStr = candidate.sellCount > 0
+      ? `${buySellRatio.toFixed(1)}:1 buy/sell`
+      : `${candidate.buyCount} buys, 0 sells`;
+
+    log.success(
+      MODULE,
+      `QUALIFIED: ${candidate.symbol} | Buyers: ${uniqueBuyerCount} (excl. dev) | ${buySellStr} | Age: ${ageSec.toFixed(0)}s | MCap: ${candidate.latestMarketCapSol.toFixed(2)} SOL ($${(candidate.latestMarketCapSol * solPriceUsd).toFixed(0)})`
+    );
+
+    this.onQualifiedToken?.(candidate);
   }
 
   // ── Cleanup ──

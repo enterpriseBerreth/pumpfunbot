@@ -151,8 +151,9 @@ export class TelegramAlert {
       `*Trade Size:* $${CONFIG.TRADE_SIZE_USD}`,
       `*Min Buyers:* ${CONFIG.MIN_UNIQUE_BUYERS} (excl. dev)`,
       `*Min Age:* ${CONFIG.MIN_TOKEN_AGE_SECONDS}s`,
-      `*Take Profit:* ${CONFIG.TAKE_PROFIT_LEVELS.map((l) => `+${l.triggerPct}%`).join(', ')}`,
-      `*Stop Loss:* -${CONFIG.INITIAL_STOP_LOSS_PCT}%`,
+      `*Take Profit:* +${CONFIG.TAKE_PROFIT_PCT}%`,
+      `*Stop Loss:* -${CONFIG.STOP_LOSS_PCT}%`,
+      `*Collapse Exit:* -${CONFIG.COLLAPSE_DROP_FROM_PEAK_PCT}% from peak`,
     ].join('\n');
 
     await this.send(msg);
