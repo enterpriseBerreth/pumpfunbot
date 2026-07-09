@@ -132,6 +132,7 @@ export class PaperTrader {
       uniqueBuyers: candidate.uniqueBuyers.size,
       marketCapUsd: mCapUsd,
       budgetRemaining: this.state.budgetRemaining,
+      capitalBeforeBuy: this.state.budgetRemaining + sizeUsd,
     });
   }
 
@@ -369,6 +370,7 @@ export class PaperTrader {
     await this.telegram.sendPartialSellAlert({
       tokenName: `${position.symbol} (${position.name})`,
       mint: position.mint,
+      entryPriceUsd: position.entryPriceUsd,
       soldUsd: amountUsd,
       proceedsUsd: proceeds,
       pnlOnSell,
@@ -376,6 +378,8 @@ export class PaperTrader {
       currentPriceUsd: position.currentPriceUsd,
       pnlPctFromEntry: position.pnlPct,
       reason,
+      capitalBefore: position.capitalBeforeBuy,
+      capitalAfter: this.state.budgetRemaining,
     });
   }
 
