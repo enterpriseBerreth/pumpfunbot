@@ -211,16 +211,7 @@ export class PaperTrader {
       `BUY ${candidate.symbol} @ $${this.fmtPrice(fill.fillPriceUsd)} (mkt $${this.fmtPrice(candidate.latestPriceUsd)} +${CONFIG.BUY_SLIPPAGE_PCT}% slip) | $${sizeUsd.toFixed(2)} - $${fill.totalFeeUsd.toFixed(2)} fees = ${fill.tokensAcquired.toFixed(0)} tokens | MCap: $${mCapUsd.toFixed(0)} | Budget: $${this.state.budgetRemaining.toFixed(2)}`
     );
 
-    await this.telegram.sendBuyAlert({
-      tokenName: `${candidate.symbol} (${candidate.name})`,
-      mint: candidate.mint,
-      priceUsd: fill.fillPriceUsd,
-      sizeUsd,
-      uniqueBuyers: candidate.uniqueBuyers.size,
-      marketCapUsd: mCapUsd,
-      budgetRemaining: this.state.budgetRemaining,
-      capitalBeforeBuy: capitalBefore,
-    });
+    // No Telegram alert on buy — only alert after final sell
   }
 
   // ── Price Update (called from WebSocket trade events) ──
@@ -413,19 +404,12 @@ export class PaperTrader {
     };
     this.tradeLog.push(event);
 
-    await this.telegram.sendSellAlert({
+    await this.telegram.sendTradeClosedAlert({
       tokenName: `${position.symbol} (${position.name})`,
-      mint: position.mint,
-      entryPriceUsd: position.entryPriceUsd,
-      exitPriceUsd: fill.fillPriceUsd,
-      pnlUsd: totalPnl,
-      pnlPct: totalPnlPct,
-      holdTime,
-      reason,
       capitalBefore: position.capitalBeforeBuy,
       capitalAfter: this.state.budgetRemaining,
-      totalBotPnl: this.state.totalPnl,
-      winRate: this.getWinRate(),
+      pnlUsd: totalPnl,
+      pnlPct: totalPnlPct,
     });
   }
 
@@ -466,20 +450,7 @@ export class PaperTrader {
     };
     this.tradeLog.push(event);
 
-    await this.telegram.sendPartialSellAlert({
-      tokenName: `${position.symbol} (${position.name})`,
-      mint: position.mint,
-      entryPriceUsd: position.entryPriceUsd,
-      soldUsd: fill.grossProceedsUsd,
-      proceedsUsd: fill.netProceedsUsd,
-      pnlOnSell: runningPnl,
-      remainingUsd: position.remainingSizeUsd,
-      currentPriceUsd: fill.fillPriceUsd,
-      pnlPctFromEntry,
-      reason,
-      capitalBefore: position.capitalBeforeBuy,
-      capitalAfter: this.state.budgetRemaining,
-    });
+    // No Telegram alert on partial sell — only alert after final sell
   }
 
   // ── Status & Reporting ──

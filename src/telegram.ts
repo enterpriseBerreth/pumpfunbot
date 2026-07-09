@@ -20,51 +20,14 @@ export class TelegramAlert {
     }
   }
 
-  // ── BUY Alert ──
+  // ── TRADE CLOSED Alert (only alert per trade) ──
 
-  async sendBuyAlert(data: {
+  async sendTradeClosedAlert(data: {
     tokenName: string;
-    mint: string;
-    priceUsd: number;
-    sizeUsd: number;
-    uniqueBuyers: number;
-    marketCapUsd: number;
-    budgetRemaining: number;
-    capitalBeforeBuy: number;
-  }): Promise<void> {
-    const msg = [
-      `🟢 *PUMPFUNBOT — BUY*`,
-      ``,
-      `*Token:* ${this.esc(data.tokenName)}`,
-      `*Mint:* \`${data.mint.slice(0, 12)}...\``,
-      `*Price Bought At:* $${this.fmtPrice(data.priceUsd)}`,
-      `*Size:* $${data.sizeUsd.toFixed(2)}`,
-      `*Unique Buyers:* ${data.uniqueBuyers} (excl. dev)`,
-      `*Market Cap:* $${data.marketCapUsd.toFixed(0)}`,
-      `*Capital Before Buy:* $${data.capitalBeforeBuy.toFixed(2)}`,
-      `*Capital After Buy:* $${data.budgetRemaining.toFixed(2)}`,
-      ``,
-      `${CONFIG.PAPER_TRADE ? '📝 Paper Trade' : '💰 LIVE'}`,
-    ].join('\n');
-
-    await this.send(msg);
-  }
-
-  // ── SELL Alert (full close) ──
-
-  async sendSellAlert(data: {
-    tokenName: string;
-    mint: string;
-    entryPriceUsd: number;
-    exitPriceUsd: number;
-    pnlUsd: number;
-    pnlPct: number;
-    holdTime: string;
-    reason: string;
     capitalBefore: number;
     capitalAfter: number;
-    totalBotPnl: number;
-    winRate: number;
+    pnlUsd: number;
+    pnlPct: number;
   }): Promise<void> {
     const pnlEmoji = data.pnlUsd >= 0 ? '🟢' : '🔴';
     const sign = data.pnlUsd >= 0 ? '+' : '';
@@ -73,56 +36,10 @@ export class TelegramAlert {
       `${pnlEmoji} *PUMPFUNBOT — TRADE CLOSED*`,
       ``,
       `*Token:* ${this.esc(data.tokenName)}`,
-      `*Price Bought At:* $${this.fmtPrice(data.entryPriceUsd)}`,
-      `*Price Sold At:* $${this.fmtPrice(data.exitPriceUsd)}`,
-      `*PNL:* ${sign}$${data.pnlUsd.toFixed(2)}`,
+      `*Capital Before Buy:* $${data.capitalBefore.toFixed(2)}`,
+      `*Capital After Sell:* $${data.capitalAfter.toFixed(2)}`,
       `*PNL:* ${sign}${data.pnlPct.toFixed(1)}%`,
-      `*Capital Before Buy:* $${data.capitalBefore.toFixed(2)}`,
-      `*Capital After Sell:* $${data.capitalAfter.toFixed(2)}`,
-      ``,
-      `*Hold Time:* ${data.holdTime}`,
-      `*Reason:* ${this.esc(data.reason)}`,
-      `*Total Bot PNL:* ${data.totalBotPnl >= 0 ? '+' : ''}$${data.totalBotPnl.toFixed(2)}`,
-      `*Win Rate:* ${data.winRate.toFixed(0)}%`,
-      ``,
-      `${CONFIG.PAPER_TRADE ? '📝 Paper Trade' : '💰 LIVE'}`,
-    ].join('\n');
-
-    await this.send(msg);
-  }
-
-  // ── PARTIAL SELL Alert ──
-
-  async sendPartialSellAlert(data: {
-    tokenName: string;
-    mint: string;
-    entryPriceUsd: number;
-    soldUsd: number;
-    proceedsUsd: number;
-    pnlOnSell: number;
-    remainingUsd: number;
-    currentPriceUsd: number;
-    pnlPctFromEntry: number;
-    reason: string;
-    capitalBefore: number;
-    capitalAfter: number;
-  }): Promise<void> {
-    const sign = data.pnlOnSell >= 0 ? '+' : '';
-
-    const msg = [
-      `📤 *PUMPFUNBOT — PARTIAL SELL*`,
-      ``,
-      `*Token:* ${this.esc(data.tokenName)}`,
-      `*Price Bought At:* $${this.fmtPrice(data.entryPriceUsd)}`,
-      `*Price Sold At:* $${this.fmtPrice(data.currentPriceUsd)}`,
-      `*PNL:* ${sign}$${data.pnlOnSell.toFixed(2)}`,
-      `*PNL:* ${sign}${data.pnlPctFromEntry.toFixed(1)}%`,
-      `*Capital Before Buy:* $${data.capitalBefore.toFixed(2)}`,
-      `*Capital After Sell:* $${data.capitalAfter.toFixed(2)}`,
-      ``,
-      `*Sold:* $${data.soldUsd.toFixed(2)} → $${data.proceedsUsd.toFixed(2)}`,
-      `*Remaining:* $${data.remainingUsd.toFixed(2)} (riding for max profit)`,
-      `*Reason:* ${this.esc(data.reason)}`,
+      `*PNL:* ${sign}$${data.pnlUsd.toFixed(2)}`,
       ``,
       `${CONFIG.PAPER_TRADE ? '📝 Paper Trade' : '💰 LIVE'}`,
     ].join('\n');
