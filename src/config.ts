@@ -15,9 +15,13 @@ export const CONFIG = {
   MAX_TOKEN_AGE_SECONDS: 300,    // Don't buy tokens older than 5 minutes
 
   // ── Scanner ──
+  PUMPPORTAL_API_KEY: process.env.PUMPPORTAL_API_KEY || '',
   PUMPFUN_WS_URL: 'wss://pumpportal.fun/api/data',
+  PUMPFUN_API_BASE: 'https://frontend-api-v3.pump.fun',
+  DEXSCREENER_API_BASE: 'https://api.dexscreener.com',
+  POLL_INTERVAL_MS: 4_000,         // How often to poll Pump.fun API for trade data (no API key mode)
   PRICE_CHECK_INTERVAL_MS: 3_000,
-  CANDIDATE_TIMEOUT_MS: 120_000, // Stop tracking unqualified candidates after 2 min
+  CANDIDATE_TIMEOUT_MS: 120_000,   // Stop tracking unqualified candidates after 2 min
   WS_RECONNECT_DELAY_MS: 3_000,
   WS_MAX_RECONNECT_DELAY_MS: 30_000,
 

@@ -109,20 +109,33 @@ export class PumpFunScanner {
   private shouldRun = false;
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
   private solPriceInterval: ReturnType<typeof setInterval> | null = null;
+  private pollInterval: ReturnType<typeof setInterval> | null = null;
   private subscribedTokens = new Set<string>();
+  private hasApiKey: boolean;
+  private totalScanned = 0;
 
   // Callback when a token qualifies for buying
   onQualifiedToken: ((candidate: TokenCandidate) => void) | null = null;
   // Callback for price updates on tokens we hold
   onPriceUpdate: ((mint: string, priceSol: number, priceUsd: number, marketCapSol: number) => void) | null = null;
 
+  constructor() {
+    this.hasApiKey = CONFIG.PUMPPORTAL_API_KEY.length > 0;
+  }
+
   async start(): Promise<void> {
     this.shouldRun = true;
 
-    // Fetch SOL price with retries - critical for accurate USD values
+    if (this.hasApiKey) {
+      log.success(MODULE, 'PumpPortal API key detected — using real-time trade events');
+    } else {
+      log.warn(MODULE, 'No PumpPortal API key — using HTTP polling for trade data (free mode)');
+    }
+
+    // Fetch SOL price with retries
     for (let i = 0; i < 5; i++) {
       const price = await updateSolPrice();
-      if (price !== 150) break; // Got a real price, not the fallback
+      if (price !== 150) break;
       if (i < 4) {
         log.warn(MODULE, `SOL price fetch attempt ${i + 1} failed, retrying in 2s...`);
         await new Promise((r) => setTimeout(r, 2_000));
@@ -134,6 +147,11 @@ export class PumpFunScanner {
 
     // Periodically clean up stale candidates
     this.cleanupInterval = setInterval(() => this.cleanupCandidates(), 30_000);
+
+    // If no API key, start polling loop for trade data
+    if (!this.hasApiKey) {
+      this.startPolling();
+    }
 
     // Connect to WebSocket
     this.connect();
@@ -153,14 +171,17 @@ export class PumpFunScanner {
       clearInterval(this.solPriceInterval);
       this.solPriceInterval = null;
     }
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
+    }
     log.info(MODULE, 'Scanner stopped');
   }
 
-  // Subscribe to trade events for a specific token (used after buying)
   subscribeToToken(mint: string): void {
     if (this.subscribedTokens.has(mint)) return;
     this.subscribedTokens.add(mint);
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    if (this.hasApiKey && this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({
         method: 'subscribeTokenTrade',
         keys: [mint],
@@ -171,7 +192,7 @@ export class PumpFunScanner {
 
   unsubscribeFromToken(mint: string): void {
     this.subscribedTokens.delete(mint);
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    if (this.hasApiKey && this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({
         method: 'unsubscribeTokenTrade',
         keys: [mint],
@@ -183,40 +204,50 @@ export class PumpFunScanner {
     return this.candidates.size;
   }
 
+  getTotalScanned(): number {
+    return this.totalScanned;
+  }
+
   // ── WebSocket Connection ──
 
   private connect(): void {
     if (!this.shouldRun) return;
 
+    // Include API key in URL if available
+    const wsUrl = this.hasApiKey
+      ? `${CONFIG.PUMPFUN_WS_URL}?api-key=${CONFIG.PUMPPORTAL_API_KEY}`
+      : CONFIG.PUMPFUN_WS_URL;
+
     log.info(MODULE, `Connecting to PumpPortal WebSocket...`);
 
-    this.ws = new WebSocket(CONFIG.PUMPFUN_WS_URL);
+    this.ws = new WebSocket(wsUrl);
 
     this.ws.on('open', () => {
       log.success(MODULE, 'Connected to PumpPortal WebSocket');
       this.reconnectDelay = CONFIG.WS_RECONNECT_DELAY_MS;
 
-      // Subscribe to new token creation events
+      // Always subscribe to new token creation events (free)
       this.ws!.send(JSON.stringify({ method: 'subscribeNewToken' }));
       log.info(MODULE, 'Subscribed to new token events');
 
-      // Re-subscribe to any tokens we were tracking
-      for (const mint of this.subscribedTokens) {
-        this.ws!.send(JSON.stringify({
-          method: 'subscribeTokenTrade',
-          keys: [mint],
-        }));
-      }
+      // Only subscribe to trade events if we have an API key (paid feature)
+      if (this.hasApiKey) {
+        for (const mint of this.subscribedTokens) {
+          this.ws!.send(JSON.stringify({
+            method: 'subscribeTokenTrade',
+            keys: [mint],
+          }));
+        }
 
-      // Subscribe to trades for all active candidates
-      const candidateMints = Array.from(this.candidates.keys()).filter(
-        (m) => !this.subscribedTokens.has(m)
-      );
-      if (candidateMints.length > 0) {
-        this.ws!.send(JSON.stringify({
-          method: 'subscribeTokenTrade',
-          keys: candidateMints,
-        }));
+        const candidateMints = Array.from(this.candidates.keys()).filter(
+          (m) => !this.subscribedTokens.has(m)
+        );
+        if (candidateMints.length > 0) {
+          this.ws!.send(JSON.stringify({
+            method: 'subscribeTokenTrade',
+            keys: candidateMints,
+          }));
+        }
       }
     });
 
@@ -224,9 +255,7 @@ export class PumpFunScanner {
       try {
         const msg = JSON.parse(data.toString());
         this.handleMessage(msg);
-      } catch {
-        // Ignore malformed messages
-      }
+      } catch { /* Ignore malformed messages */ }
     });
 
     this.ws.on('error', (err: Error) => {
@@ -255,7 +284,7 @@ export class PumpFunScanner {
       return;
     }
 
-    // Trade event
+    // Trade event (only received with API key)
     if ('mint' in msg && 'txType' in msg && 'traderPublicKey' in msg && 'signature' in msg) {
       this.handleTrade(msg as unknown as PumpFunTrade);
       return;
@@ -267,6 +296,7 @@ export class PumpFunScanner {
   private handleNewToken(token: PumpFunNewToken): void {
     if (this.candidates.has(token.mint)) return;
 
+    this.totalScanned++;
     const priceSol = token.marketCapSol / CONFIG.PUMPFUN_TOTAL_SUPPLY;
     const priceUsd = priceSol * solPriceUsd;
 
@@ -287,9 +317,8 @@ export class PumpFunScanner {
       qualified: false,
     };
 
-    // If dev made an initial buy, don't count them as a unique buyer
     if (token.initialBuy > 0) {
-      candidate.buyCount = 1; // Dev's buy
+      candidate.buyCount = 1;
     }
 
     this.candidates.set(token.mint, candidate);
@@ -299,8 +328,8 @@ export class PumpFunScanner {
       `New token: ${token.symbol} (${token.name}) | Mint: ${token.mint.slice(0, 8)}... | Dev: ${token.traderPublicKey.slice(0, 8)}... | MCap: ${token.marketCapSol.toFixed(2)} SOL`
     );
 
-    // Subscribe to trades for this token
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    // Only subscribe to trade events via WS if we have an API key
+    if (this.hasApiKey && this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({
         method: 'subscribeTokenTrade',
         keys: [token.mint],
@@ -308,7 +337,7 @@ export class PumpFunScanner {
     }
   }
 
-  // ── Trade Handler ──
+  // ── Trade Handler (WebSocket mode with API key) ──
 
   private handleTrade(trade: PumpFunTrade): void {
     const priceSol = trade.marketCapSol / CONFIG.PUMPFUN_TOTAL_SUPPLY;
@@ -317,11 +346,9 @@ export class PumpFunScanner {
     // Update price for held positions
     this.onPriceUpdate?.(trade.mint, priceSol, priceUsd, trade.marketCapSol);
 
-    // Update candidate tracking
     const candidate = this.candidates.get(trade.mint);
     if (!candidate || candidate.qualified) return;
 
-    // Update price data
     candidate.latestMarketCapSol = trade.marketCapSol;
     candidate.latestPriceSol = priceSol;
     candidate.latestPriceUsd = priceUsd;
@@ -329,14 +356,9 @@ export class PumpFunScanner {
 
     if (trade.txType === 'buy') {
       candidate.buyCount++;
-
-      // Track unique buyers EXCLUDING the developer wallet
       if (trade.traderPublicKey !== candidate.devWallet) {
         candidate.uniqueBuyers.add(trade.traderPublicKey);
       }
-
-      // Estimate buy volume from bonding curve changes
-      // solAmount isn't directly in the event, estimate from market cap change
       candidate.totalBuyVolumeSol += Math.abs(
         trade.marketCapSol - candidate.latestMarketCapSol
       ) || 0.01;
@@ -344,12 +366,192 @@ export class PumpFunScanner {
       candidate.sellCount++;
     }
 
-    // ── Check qualification ──
+    this.checkQualification(candidate);
+  }
+
+  // ── HTTP Polling Mode (no API key) ──
+
+  private startPolling(): void {
+    log.info(MODULE, `Starting HTTP polling every ${CONFIG.POLL_INTERVAL_MS / 1000}s for trade data`);
+    this.pollInterval = setInterval(() => this.pollCandidates(), CONFIG.POLL_INTERVAL_MS);
+  }
+
+  private async pollCandidates(): Promise<void> {
+    const now = Date.now();
+    const toCheck: TokenCandidate[] = [];
+
+    for (const [, candidate] of this.candidates) {
+      if (candidate.qualified) continue;
+      const ageSec = (now - candidate.createdAt) / 1000;
+      // Only poll tokens old enough and not too old
+      if (ageSec >= CONFIG.MIN_TOKEN_AGE_SECONDS && ageSec <= CONFIG.MAX_TOKEN_AGE_SECONDS) {
+        toCheck.push(candidate);
+      }
+    }
+
+    // Also poll held positions for price updates
+    const heldMints = Array.from(this.subscribedTokens);
+
+    // Poll candidates (batch up to 5 at a time to avoid rate limits)
+    const batch = toCheck.slice(0, 5);
+    const promises: Promise<void>[] = [];
+
+    for (const candidate of batch) {
+      promises.push(this.pollTokenTrades(candidate));
+    }
+
+    // Poll held positions for price updates
+    for (const mint of heldMints) {
+      promises.push(this.pollTokenPrice(mint));
+    }
+
+    await Promise.allSettled(promises);
+  }
+
+  private async pollTokenTrades(candidate: TokenCandidate): Promise<void> {
+    try {
+      // Try Pump.fun Frontend API first
+      const trades = await this.fetchPumpFunTrades(candidate.mint);
+      if (trades !== null) {
+        // Count unique buyers excluding dev
+        const uniqueBuyers = new Set<string>();
+        let latestMcap = candidate.latestMarketCapSol;
+
+        for (const trade of trades) {
+          if (trade.is_buy && trade.user !== candidate.devWallet) {
+            uniqueBuyers.add(trade.user);
+          }
+          // Update price from most recent trade
+          if (trade.sol_amount && trade.token_amount) {
+            // Use the last trade's data for market cap
+            latestMcap = trade.market_cap || latestMcap;
+          }
+        }
+
+        candidate.uniqueBuyers = uniqueBuyers;
+        candidate.buyCount = trades.filter((t: PumpFunApiTrade) => t.is_buy).length;
+        candidate.sellCount = trades.filter((t: PumpFunApiTrade) => !t.is_buy).length;
+
+        if (latestMcap > 0) {
+          candidate.latestMarketCapSol = latestMcap;
+          candidate.latestPriceSol = latestMcap / CONFIG.PUMPFUN_TOTAL_SUPPLY;
+          candidate.latestPriceUsd = candidate.latestPriceSol * solPriceUsd;
+        }
+
+        this.checkQualification(candidate);
+        return;
+      }
+
+      // Fallback: DexScreener
+      const dexData = await this.fetchDexScreenerData(candidate.mint);
+      if (dexData) {
+        candidate.latestPriceUsd = dexData.priceUsd;
+        candidate.latestPriceSol = dexData.priceUsd / solPriceUsd;
+        // Use txn count as proxy for unique buyers (rough estimate)
+        if (dexData.buyTxns >= CONFIG.MIN_UNIQUE_BUYERS) {
+          // DexScreener doesn't give unique wallets, but buy txn count is a decent proxy
+          for (let i = candidate.uniqueBuyers.size; i < dexData.buyTxns; i++) {
+            candidate.uniqueBuyers.add(`dex-buyer-${i}`);
+          }
+        }
+        this.checkQualification(candidate);
+      }
+    } catch (err) {
+      // Silently ignore polling errors for individual tokens
+    }
+  }
+
+  private async pollTokenPrice(mint: string): Promise<void> {
+    try {
+      // Try Pump.fun API for coin data
+      const coinData = await this.fetchPumpFunCoin(mint);
+      if (coinData && coinData.market_cap > 0) {
+        const priceSol = coinData.market_cap / CONFIG.PUMPFUN_TOTAL_SUPPLY;
+        const priceUsd = priceSol * solPriceUsd;
+        this.onPriceUpdate?.(mint, priceSol, priceUsd, coinData.market_cap);
+        return;
+      }
+
+      // Fallback: DexScreener
+      const dexData = await this.fetchDexScreenerData(mint);
+      if (dexData && dexData.priceUsd > 0) {
+        const priceSol = dexData.priceUsd / solPriceUsd;
+        this.onPriceUpdate?.(mint, priceSol, dexData.priceUsd, 0);
+      }
+    } catch { /* best effort */ }
+  }
+
+  // ── Pump.fun Frontend API ──
+
+  private async fetchPumpFunTrades(mint: string): Promise<PumpFunApiTrade[] | null> {
+    try {
+      const url = `${CONFIG.PUMPFUN_API_BASE}/trades/all/${mint}?limit=50&minimumSize=0`;
+      const res = await fetch(url, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(6_000),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return Array.isArray(data) ? data : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async fetchPumpFunCoin(mint: string): Promise<{ market_cap: number; usd_market_cap?: number } | null> {
+    try {
+      const url = `${CONFIG.PUMPFUN_API_BASE}/coins/${mint}`;
+      const res = await fetch(url, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(6_000),
+      });
+      if (!res.ok) return null;
+      const data = await res.json() as Record<string, unknown>;
+      return {
+        market_cap: Number(data.market_cap ?? 0),
+        usd_market_cap: Number(data.usd_market_cap ?? 0),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  // ── DexScreener Fallback ──
+
+  private async fetchDexScreenerData(mint: string): Promise<{ priceUsd: number; buyTxns: number; sellTxns: number } | null> {
+    try {
+      const url = `${CONFIG.DEXSCREENER_API_BASE}/tokens/v1/solana/${mint}`;
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!res.ok) return null;
+      const pairs = await res.json() as Array<Record<string, unknown>>;
+      if (!Array.isArray(pairs) || pairs.length === 0) return null;
+
+      const pair = pairs[0];
+      const priceUsd = parseFloat(String(pair.priceUsd ?? '0'));
+      const txns = pair.txns as Record<string, { buys?: number; sells?: number }> | undefined;
+      const m5 = txns?.m5 ?? txns?.h1 ?? { buys: 0, sells: 0 };
+
+      return {
+        priceUsd,
+        buyTxns: m5.buys ?? 0,
+        sellTxns: m5.sells ?? 0,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  // ── Qualification Check ──
+
+  private checkQualification(candidate: TokenCandidate): void {
+    if (candidate.qualified) return;
+
     const ageSec = (Date.now() - candidate.createdAt) / 1000;
     const uniqueBuyerCount = candidate.uniqueBuyers.size;
 
     if (
-      !candidate.qualified &&
       uniqueBuyerCount >= CONFIG.MIN_UNIQUE_BUYERS &&
       ageSec >= CONFIG.MIN_TOKEN_AGE_SECONDS &&
       ageSec <= CONFIG.MAX_TOKEN_AGE_SECONDS
@@ -373,7 +575,6 @@ export class PumpFunScanner {
 
     for (const [mint, candidate] of this.candidates) {
       if (candidate.qualified) continue;
-
       const age = now - candidate.createdAt;
       if (age > CONFIG.CANDIDATE_TIMEOUT_MS) {
         expired.push(mint);
@@ -383,8 +584,7 @@ export class PumpFunScanner {
     if (expired.length > 0) {
       for (const mint of expired) {
         this.candidates.delete(mint);
-        // Unsubscribe from trades if not in our held positions
-        if (!this.subscribedTokens.has(mint) && this.ws?.readyState === WebSocket.OPEN) {
+        if (this.hasApiKey && !this.subscribedTokens.has(mint) && this.ws?.readyState === WebSocket.OPEN) {
           this.ws.send(JSON.stringify({
             method: 'unsubscribeTokenTrade',
             keys: [mint],
@@ -394,4 +594,20 @@ export class PumpFunScanner {
       log.info(MODULE, `Cleaned up ${expired.length} expired candidate(s) | Active: ${this.candidates.size}`);
     }
   }
+}
+
+// ── Pump.fun API trade type ──
+interface PumpFunApiTrade {
+  signature: string;
+  mint: string;
+  sol_amount: number;
+  token_amount: number;
+  is_buy: boolean;
+  user: string;
+  timestamp: number;
+  tx_index: number;
+  username?: string;
+  profile_image?: string;
+  slot: number;
+  market_cap?: number;
 }

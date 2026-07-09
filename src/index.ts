@@ -82,7 +82,7 @@ async function main(): Promise<void> {
 
     setTimeout(async () => {
       try {
-        const stats = trader.getDailyStats(scanner.getCandidateCount());
+        const stats = trader.getDailyStats(scanner.getTotalScanned());
         await telegram.sendDailySummary(stats);
         log.success(MODULE, 'Daily summary sent to Telegram');
       } catch (err) {
