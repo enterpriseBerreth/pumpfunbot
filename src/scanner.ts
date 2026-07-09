@@ -14,22 +14,50 @@ export function getSolPrice(): number {
 }
 
 export async function updateSolPrice(): Promise<number> {
-  try {
-    const res = await fetch(
-      `${CONFIG.JUPITER_PRICE_API}?ids=${CONFIG.SOL_MINT}`,
-      { signal: AbortSignal.timeout(8_000) }
-    );
-    if (!res.ok) return solPriceUsd;
-    const data = (await res.json()) as { data: Record<string, { price: string } | undefined> };
-    const price = parseFloat(data.data[CONFIG.SOL_MINT]?.price || '0');
-    if (price > 0) {
-      solPriceUsd = price;
-      log.info(MODULE, `SOL price updated: $${price.toFixed(2)}`);
-    }
-    return solPriceUsd;
-  } catch {
-    return solPriceUsd;
+  // Try multiple sources for reliability
+  const sources: Array<{ name: string; fetch: () => Promise<number> }> = [
+    {
+      name: 'Jupiter',
+      fetch: async () => {
+        const res = await fetch(`${CONFIG.JUPITER_PRICE_API}?ids=${CONFIG.SOL_MINT}`, { signal: AbortSignal.timeout(8_000) });
+        if (!res.ok) return 0;
+        const data = (await res.json()) as { data: Record<string, { price: string } | undefined> };
+        return parseFloat(data.data[CONFIG.SOL_MINT]?.price || '0');
+      },
+    },
+    {
+      name: 'CoinGecko',
+      fetch: async () => {
+        const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd', { signal: AbortSignal.timeout(8_000) });
+        if (!res.ok) return 0;
+        const data = (await res.json()) as { solana?: { usd?: number } };
+        return data.solana?.usd ?? 0;
+      },
+    },
+    {
+      name: 'Binance',
+      fetch: async () => {
+        const res = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT', { signal: AbortSignal.timeout(8_000) });
+        if (!res.ok) return 0;
+        const data = (await res.json()) as { price?: string };
+        return parseFloat(data.price || '0');
+      },
+    },
+  ];
+
+  for (const src of sources) {
+    try {
+      const price = await src.fetch();
+      if (price > 0) {
+        solPriceUsd = price;
+        log.info(MODULE, `SOL price updated via ${src.name}: $${price.toFixed(2)}`);
+        return solPriceUsd;
+      }
+    } catch { /* try next */ }
   }
+
+  log.warn(MODULE, `All SOL price sources failed, using $${solPriceUsd.toFixed(2)}`);
+  return solPriceUsd;
 }
 
 // ── Jupiter price lookup for tokens ──
