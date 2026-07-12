@@ -1,9 +1,17 @@
 import WebSocket from 'ws';
 import { CONFIG } from './config.js';
-import { TokenCandidate, PumpFunNewToken, PumpFunTrade } from './types.js';
+import { CandidateEvaluation, TokenCandidate, PumpFunNewToken, PumpFunTrade } from './types.js';
 import { log } from './logger.js';
 
 const MODULE = 'SCANNER';
+
+interface RejectedCandidateTelemetry {
+  candidate: TokenCandidate;
+  evaluation: CandidateEvaluation;
+  rejectionKind: 'filter_rejection' | 'execution_skipped';
+  rejectedAt: number;
+  nextFollowUpIndex: number;
+}
 
 // ── SOL price tracking ──
 
@@ -110,7 +118,9 @@ export class PumpFunScanner {
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
   private solPriceInterval: ReturnType<typeof setInterval> | null = null;
   private pollInterval: ReturnType<typeof setInterval> | null = null;
+  private rejectionFollowupInterval: ReturnType<typeof setInterval> | null = null;
   private subscribedTokens = new Set<string>();
+  private rejectedCandidates = new Map<string, RejectedCandidateTelemetry>();
   private hasApiKey: boolean;
   private totalScanned = 0;
 
@@ -147,6 +157,9 @@ export class PumpFunScanner {
 
     // Periodically clean up stale candidates
     this.cleanupInterval = setInterval(() => this.cleanupCandidates(), 30_000);
+    this.rejectionFollowupInterval = setInterval(() => {
+      void this.captureRejectedCandidateFollowups();
+    }, CONFIG.REJECTION_FOLLOWUP_CHECK_INTERVAL_MS);
 
     // Always start polling - it's the reliable fallback even with API key
     // (API key trade subscriptions require funded wallet)
@@ -174,6 +187,11 @@ export class PumpFunScanner {
       clearInterval(this.pollInterval);
       this.pollInterval = null;
     }
+    if (this.rejectionFollowupInterval) {
+      clearInterval(this.rejectionFollowupInterval);
+      this.rejectionFollowupInterval = null;
+    }
+    this.rejectedCandidates.clear();
     log.info(MODULE, 'Scanner stopped');
   }
 
@@ -205,6 +223,11 @@ export class PumpFunScanner {
 
   getTotalScanned(): number {
     return this.totalScanned;
+  }
+
+  recordQualifiedCandidateSkipped(candidate: TokenCandidate, reason: string): void {
+    const evaluation = this.evaluateCandidate(candidate);
+    this.recordRejectedCandidate(candidate, evaluation, 'execution_skipped', [reason]);
   }
 
   // ── WebSocket Connection ──
@@ -558,6 +581,129 @@ export class PumpFunScanner {
 
   // ── Smart Qualification Check ──
 
+  private evaluateCandidate(candidate: TokenCandidate): CandidateEvaluation {
+    const ageSec = (Date.now() - candidate.createdAt) / 1000;
+    const uniqueBuyerCount = candidate.uniqueBuyers.size;
+    const buySellRatio = candidate.sellCount > 0
+      ? candidate.buyCount / candidate.sellCount
+      : candidate.buyCount;
+    const mcapGrowthPct = candidate.initialMarketCapSol > 0
+      ? ((candidate.latestMarketCapSol - candidate.initialMarketCapSol) / candidate.initialMarketCapSol) * 100
+      : 0;
+
+    const checks = {
+      uniqueBuyers: { actual: uniqueBuyerCount, threshold: CONFIG.MIN_UNIQUE_BUYERS, passed: uniqueBuyerCount >= CONFIG.MIN_UNIQUE_BUYERS },
+      tokenAgeSeconds: {
+        actual: Number(ageSec.toFixed(2)),
+        threshold: { min: CONFIG.MIN_TOKEN_AGE_SECONDS, max: CONFIG.MAX_TOKEN_AGE_SECONDS },
+        passed: ageSec >= CONFIG.MIN_TOKEN_AGE_SECONDS && ageSec <= CONFIG.MAX_TOKEN_AGE_SECONDS,
+      },
+      buySellRatio: { actual: Number(buySellRatio.toFixed(3)), threshold: CONFIG.MIN_BUY_SELL_RATIO, passed: buySellRatio >= CONFIG.MIN_BUY_SELL_RATIO },
+      marketCapGrowthPct: {
+        actual: Number(mcapGrowthPct.toFixed(3)),
+        threshold: CONFIG.MIN_MCAP_GROWTH_PCT,
+        passed: candidate.initialMarketCapSol <= 0 || mcapGrowthPct >= CONFIG.MIN_MCAP_GROWTH_PCT,
+      },
+      developerHasSold: { actual: candidate.devSold, threshold: false, passed: !CONFIG.SKIP_IF_DEV_SOLD || !candidate.devSold },
+    };
+
+    const rejectionReasons: string[] = [];
+    if (!checks.uniqueBuyers.passed) rejectionReasons.push(`unique_buyers ${uniqueBuyerCount} < ${CONFIG.MIN_UNIQUE_BUYERS}`);
+    if (!checks.tokenAgeSeconds.passed) rejectionReasons.push(`token_age_seconds ${ageSec.toFixed(1)} outside ${CONFIG.MIN_TOKEN_AGE_SECONDS}-${CONFIG.MAX_TOKEN_AGE_SECONDS}`);
+    if (!checks.buySellRatio.passed) rejectionReasons.push(`buy_sell_ratio ${buySellRatio.toFixed(2)} < ${CONFIG.MIN_BUY_SELL_RATIO}`);
+    if (!checks.marketCapGrowthPct.passed) rejectionReasons.push(`market_cap_growth_pct ${mcapGrowthPct.toFixed(2)} < ${CONFIG.MIN_MCAP_GROWTH_PCT}`);
+    if (!checks.developerHasSold.passed) rejectionReasons.push('developer_already_sold');
+
+    const passedCount = Object.values(checks).filter((check) => check.passed).length;
+    return {
+      score: Number(((passedCount / Object.keys(checks).length) * 100).toFixed(1)),
+      checks,
+      rejectionReasons,
+    };
+  }
+
+  private recordRejectedCandidate(
+    candidate: TokenCandidate,
+    evaluation: CandidateEvaluation,
+    rejectionKind: RejectedCandidateTelemetry['rejectionKind'],
+    additionalReasons: string[] = []
+  ): void {
+    if (this.rejectedCandidates.has(candidate.mint)) return;
+
+    const rejectionReasons = Array.from(new Set([...evaluation.rejectionReasons, ...additionalReasons]));
+    const finalEvaluation: CandidateEvaluation = { ...evaluation, rejectionReasons };
+    const rejectedAt = Date.now();
+    this.rejectedCandidates.set(candidate.mint, { candidate, evaluation: finalEvaluation, rejectionKind, rejectedAt, nextFollowUpIndex: 0 });
+
+    log.telemetry(MODULE, rejectionKind === 'execution_skipped' ? 'CANDIDATE_SKIPPED' : 'CANDIDATE_REJECTED', {
+      configVersion: CONFIG.STRATEGY_CONFIG_VERSION,
+      deploymentVersion: CONFIG.DEPLOYMENT_VERSION,
+      paperTrade: CONFIG.PAPER_TRADE,
+      mint: candidate.mint,
+      symbol: candidate.symbol,
+      name: candidate.name,
+      rejectionKind,
+      rejectedAt: new Date(rejectedAt).toISOString(),
+      baselinePriceUsd: candidate.latestPriceUsd,
+      baselineMarketCapSol: candidate.latestMarketCapSol,
+      score: finalEvaluation.score,
+      checks: finalEvaluation.checks,
+      rejectionReasons: finalEvaluation.rejectionReasons,
+    });
+  }
+
+  private async captureRejectedCandidateFollowups(): Promise<void> {
+    const now = Date.now();
+    const due = Array.from(this.rejectedCandidates.values()).filter((tracked) => {
+      const horizonMinutes = CONFIG.REJECTION_FOLLOWUP_MINUTES[tracked.nextFollowUpIndex];
+      return horizonMinutes !== undefined && now - tracked.rejectedAt >= horizonMinutes * 60_000;
+    }).slice(0, 10);
+
+    await Promise.all(due.map((tracked) => this.captureRejectedCandidateFollowup(tracked)));
+  }
+
+  private async captureRejectedCandidateFollowup(tracked: RejectedCandidateTelemetry): Promise<void> {
+    const horizonMinutes = CONFIG.REJECTION_FOLLOWUP_MINUTES[tracked.nextFollowUpIndex];
+    if (horizonMinutes === undefined) return;
+
+    const observedAt = Date.now();
+    const observedPriceUsd = await this.fetchCandidatePriceUsd(tracked.candidate.mint);
+    const performancePct = observedPriceUsd !== null && tracked.candidate.latestPriceUsd > 0
+      ? ((observedPriceUsd - tracked.candidate.latestPriceUsd) / tracked.candidate.latestPriceUsd) * 100
+      : null;
+
+    log.telemetry(MODULE, 'REJECTED_CANDIDATE_FOLLOWUP', {
+      configVersion: CONFIG.STRATEGY_CONFIG_VERSION,
+      deploymentVersion: CONFIG.DEPLOYMENT_VERSION,
+      paperTrade: CONFIG.PAPER_TRADE,
+      mint: tracked.candidate.mint,
+      symbol: tracked.candidate.symbol,
+      rejectionKind: tracked.rejectionKind,
+      scheduledMinutesAfterRejection: horizonMinutes,
+      observedSecondsAfterRejection: Number(((observedAt - tracked.rejectedAt) / 1000).toFixed(1)),
+      baselinePriceUsd: tracked.candidate.latestPriceUsd,
+      observedPriceUsd,
+      performancePct: performancePct === null ? null : Number(performancePct.toFixed(3)),
+      priceAvailable: observedPriceUsd !== null,
+      score: tracked.evaluation.score,
+      rejectionReasons: tracked.evaluation.rejectionReasons,
+    });
+
+    tracked.nextFollowUpIndex++;
+    if (tracked.nextFollowUpIndex >= CONFIG.REJECTION_FOLLOWUP_MINUTES.length) {
+      this.rejectedCandidates.delete(tracked.candidate.mint);
+    }
+  }
+
+  private async fetchCandidatePriceUsd(mint: string): Promise<number | null> {
+    const coinData = await this.fetchPumpFunCoin(mint);
+    if (coinData?.market_cap && coinData.market_cap > 0) {
+      return (coinData.market_cap / CONFIG.PUMPFUN_TOTAL_SUPPLY) * solPriceUsd;
+    }
+    const dexData = await this.fetchDexScreenerData(mint);
+    return dexData?.priceUsd ?? null;
+  }
+
   private checkQualification(candidate: TokenCandidate): void {
     if (candidate.qualified) return;
 
@@ -572,6 +718,7 @@ export class PumpFunScanner {
     // ── Smart Filter 1: Skip if dev has sold (rug risk) ──
     if (CONFIG.SKIP_IF_DEV_SOLD && candidate.devSold) {
       log.info(MODULE, `SKIP ${candidate.symbol}: dev already sold (rug risk)`);
+      this.recordRejectedCandidate(candidate, this.evaluateCandidate(candidate), 'filter_rejection');
       candidate.qualified = true; // Mark to stop re-checking
       return;
     }
@@ -603,6 +750,22 @@ export class PumpFunScanner {
       `QUALIFIED: ${candidate.symbol} | Buyers: ${uniqueBuyerCount} (excl. dev) | ${buySellStr} | Age: ${ageSec.toFixed(0)}s | MCap: ${candidate.latestMarketCapSol.toFixed(2)} SOL ($${(candidate.latestMarketCapSol * solPriceUsd).toFixed(0)})`
     );
 
+    const evaluation = this.evaluateCandidate(candidate);
+    log.telemetry(MODULE, 'CANDIDATE_QUALIFIED', {
+      configVersion: CONFIG.STRATEGY_CONFIG_VERSION,
+      deploymentVersion: CONFIG.DEPLOYMENT_VERSION,
+      paperTrade: CONFIG.PAPER_TRADE,
+      mint: candidate.mint,
+      symbol: candidate.symbol,
+      name: candidate.name,
+      qualifiedAt: new Date().toISOString(),
+      priceUsd: candidate.latestPriceUsd,
+      marketCapSol: candidate.latestMarketCapSol,
+      score: evaluation.score,
+      checks: evaluation.checks,
+      rejectionReasons: evaluation.rejectionReasons,
+    });
+
     this.onQualifiedToken?.(candidate);
   }
 
@@ -622,6 +785,10 @@ export class PumpFunScanner {
 
     if (expired.length > 0) {
       for (const mint of expired) {
+        const candidate = this.candidates.get(mint);
+        if (candidate) {
+          this.recordRejectedCandidate(candidate, this.evaluateCandidate(candidate), 'filter_rejection');
+        }
         this.candidates.delete(mint);
         if (this.hasApiKey && !this.subscribedTokens.has(mint) && this.ws?.readyState === WebSocket.OPEN) {
           this.ws.send(JSON.stringify({

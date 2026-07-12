@@ -7,6 +7,7 @@ Automated Pump.fun trading bot with paper trading, trailing exits, and Telegram 
 - **Real-time Pump.fun scanning** via PumpPortal WebSocket
 - **Smart entry criteria**: Requires 3+ unique buyers (excluding developer) and 10s+ token age
 - **Paper trading mode** with $100 starting budget
+- **Structured paper-trade telemetry** for candidate decisions, missed-entry follow-ups, and exit quality
 - **$10 per trade** with intelligent position sizing
 - **Tiered take-profit**: Sells at +50%, +75%, +100% to lock in gains
 - **Moon bag strategy**: Rides remaining 25% with trailing stops for max profit
@@ -81,6 +82,7 @@ npm run dev
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `PAPER_TRADE` | No | `true` | Paper trading mode |
+| `STRATEGY_VERSION` | No | Derived from parameters | Optional label for a strategy experiment in telemetry logs |
 | `TELEGRAM_BOT_TOKEN` | For alerts | - | Telegram bot token |
 | `TELEGRAM_CHAT_ID` | For alerts | - | Telegram chat ID |
 

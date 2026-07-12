@@ -92,8 +92,22 @@ export interface Position {
   // Smart tracking
   previousPriceSol: number;      // Previous price update (for velocity)
   peakGainPct: number;           // Highest PNL % reached
+  peakPnlPct: number;            // Best net PNL % after simulated fees/slippage
+  worstPnlPct: number;           // Worst net PNL % after simulated fees/slippage
 
   exitReason?: string;
+}
+
+export interface CandidateCheck {
+  actual: number | boolean;
+  threshold: number | boolean | { min: number; max: number };
+  passed: boolean;
+}
+
+export interface CandidateEvaluation {
+  score: number;
+  checks: Record<string, CandidateCheck>;
+  rejectionReasons: string[];
 }
 
 export type TradeAction = 'BUY' | 'SELL' | 'PARTIAL_SELL';

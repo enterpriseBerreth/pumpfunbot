@@ -189,6 +189,8 @@ export class PaperTrader {
 
       previousPriceSol: candidate.latestPriceSol,
       peakGainPct: 0,
+      peakPnlPct: (-fill.totalFeeUsd / sizeUsd) * 100,
+      worstPnlPct: (-fill.totalFeeUsd / sizeUsd) * 100,
     };
 
     this.state.positions.set(candidate.mint, position);
@@ -210,6 +212,23 @@ export class PaperTrader {
       MODULE,
       `BUY ${candidate.symbol} @ $${this.fmtPrice(fill.fillPriceUsd)} (mkt $${this.fmtPrice(candidate.latestPriceUsd)} +${CONFIG.BUY_SLIPPAGE_PCT}% slip) | $${sizeUsd.toFixed(2)} - $${fill.totalFeeUsd.toFixed(2)} fees = ${fill.tokensAcquired.toFixed(0)} tokens | MCap: $${mCapUsd.toFixed(0)} | Budget: $${this.state.budgetRemaining.toFixed(2)}`
     );
+
+    log.telemetry(MODULE, 'PAPER_TRADE_OPENED', {
+      configVersion: CONFIG.STRATEGY_CONFIG_VERSION,
+      deploymentVersion: CONFIG.DEPLOYMENT_VERSION,
+      paperTrade: CONFIG.PAPER_TRADE,
+      positionId: position.id,
+      mint: position.mint,
+      symbol: position.symbol,
+      entryTime: new Date(position.entryTime).toISOString(),
+      entryMarketPriceUsd: position.entryMarketPriceUsd,
+      entryFillPriceUsd: position.entryPriceUsd,
+      entryMarketCapSol: position.marketCapAtEntry,
+      entryUniqueBuyers: position.uniqueBuyersAtEntry,
+      tradeSizeUsd: position.initialSizeUsd,
+      buyFeesUsd: fill.totalFeeUsd,
+      buySlippagePct: CONFIG.BUY_SLIPPAGE_PCT,
+    });
 
     // No Telegram alert on buy — only alert after final sell
   }
@@ -245,6 +264,8 @@ export class PaperTrader {
     const totalValueUsd = position.soldUsd + currentValueUsd;
     position.pnlUsd = totalValueUsd - position.initialSizeUsd;
     position.pnlPct = (position.pnlUsd / position.initialSizeUsd) * 100;
+    position.peakPnlPct = Math.max(position.peakPnlPct, position.pnlPct);
+    position.worstPnlPct = Math.min(position.worstPnlPct, position.pnlPct);
 
     // Check exit conditions
     this.checkExits(position);
@@ -370,6 +391,30 @@ export class PaperTrader {
       MODULE,
       `SELL ${position.symbol} @ $${this.fmtPrice(fill.fillPriceUsd)} (mkt $${this.fmtPrice(position.currentPriceUsd)} -${CONFIG.SELL_SLIPPAGE_PCT}% slip) | Fees: $${fill.feeUsd.toFixed(2)} | PNL: ${sign}$${totalPnl.toFixed(2)} (${sign}${totalPnlPct.toFixed(1)}%) | ${reason} | Hold: ${holdTime}`
     );
+
+    log.telemetry(MODULE, 'PAPER_TRADE_CLOSED', {
+      configVersion: CONFIG.STRATEGY_CONFIG_VERSION,
+      deploymentVersion: CONFIG.DEPLOYMENT_VERSION,
+      paperTrade: CONFIG.PAPER_TRADE,
+      positionId: position.id,
+      mint: position.mint,
+      symbol: position.symbol,
+      entryTime: new Date(position.entryTime).toISOString(),
+      exitTime: new Date().toISOString(),
+      entryMarketPriceUsd: position.entryMarketPriceUsd,
+      entryFillPriceUsd: position.entryPriceUsd,
+      exitMarketPriceUsd: position.currentPriceUsd,
+      exitFillPriceUsd: fill.fillPriceUsd,
+      pnlUsd: totalPnl,
+      pnlPct: totalPnlPct,
+      peakPnlPct: position.peakPnlPct,
+      worstPnlPct: position.worstPnlPct,
+      peakMarketGainPct: position.peakGainPct,
+      holdTimeSec: Math.round((Date.now() - position.entryTime) / 1000),
+      totalFeesUsd: position.totalFeesUsd,
+      exitTrigger: reason,
+      sellSlippagePct: CONFIG.SELL_SLIPPAGE_PCT,
+    });
 
     const event: TradeEvent = {
       action: 'SELL',

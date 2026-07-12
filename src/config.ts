@@ -1,8 +1,44 @@
 import 'dotenv/config';
 
+const ENTRY_PARAMETERS = {
+  MIN_UNIQUE_BUYERS: 3,
+  MIN_TOKEN_AGE_SECONDS: 10,
+  MAX_TOKEN_AGE_SECONDS: 300,
+  MIN_BUY_SELL_RATIO: 2.0,
+  MIN_MCAP_GROWTH_PCT: 5,
+  SKIP_IF_DEV_SOLD: true,
+} as const;
+
+const EXIT_PARAMETERS = {
+  TAKE_PROFIT_PCT: 50,
+  STOP_LOSS_PCT: 25,
+  COLLAPSE_DROP_FROM_PEAK_PCT: 15,
+  COLLAPSE_MIN_GAIN_PCT: 5,
+  RAPID_DUMP_PCT: 10,
+  STALE_EXIT_MINUTES: 10,
+  STALE_EXIT_MIN_GAIN_PCT: 10,
+  MAX_HOLD_TIME_MINUTES: 30,
+} as const;
+
+function configFingerprint(value: unknown): string {
+  const source = JSON.stringify(value);
+  let hash = 2166136261;
+  for (let i = 0; i < source.length; i++) {
+    hash ^= source.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `cfg-${(hash >>> 0).toString(36)}`;
+}
+
 export const CONFIG = {
   // ── Mode ──
   PAPER_TRADE: process.env.PAPER_TRADE !== 'false',
+
+  // Every telemetry event identifies both the strategy parameters and deployment.
+  STRATEGY_CONFIG_VERSION: process.env.STRATEGY_VERSION || configFingerprint({ entry: ENTRY_PARAMETERS, exit: EXIT_PARAMETERS }),
+  DEPLOYMENT_VERSION: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GITHUB_SHA || 'unknown',
+  REJECTION_FOLLOWUP_MINUTES: [1, 3, 5, 10] as const,
+  REJECTION_FOLLOWUP_CHECK_INTERVAL_MS: 5_000,
 
   // ── Budget ──
   STARTING_BUDGET_USD: 1000,
@@ -10,12 +46,7 @@ export const CONFIG = {
   MAX_CONCURRENT_TRADES: 10,
 
   // ── Pump.fun Entry Criteria ──
-  MIN_UNIQUE_BUYERS: 3,          // Excluding the developer wallet
-  MIN_TOKEN_AGE_SECONDS: 10,     // Token must be at least 10 seconds old
-  MAX_TOKEN_AGE_SECONDS: 300,    // Don't buy tokens older than 5 minutes
-  MIN_BUY_SELL_RATIO: 2.0,       // At least 2x more buys than sells
-  MIN_MCAP_GROWTH_PCT: 5,        // Market cap must have grown 5% from creation
-  SKIP_IF_DEV_SOLD: true,        // Skip tokens where dev has already sold
+  ...ENTRY_PARAMETERS,
 
   // ── Scanner ──
   PUMPPORTAL_API_KEY: process.env.PUMPPORTAL_API_KEY || '',
@@ -36,14 +67,7 @@ export const CONFIG = {
   PRIORITY_FEE_SOL: 0.005,
 
   // ── Exit Strategy (simple + smart) ──
-  TAKE_PROFIT_PCT: 50,              // Sell everything at +50%
-  STOP_LOSS_PCT: 25,                // Hard stop at -25%
-  COLLAPSE_DROP_FROM_PEAK_PCT: 15,  // If price drops 15% from its high...
-  COLLAPSE_MIN_GAIN_PCT: 5,         // ...and we were up at least 5%, sell to protect
-  RAPID_DUMP_PCT: 10,               // If price drops 10% in a single update, instant sell
-  STALE_EXIT_MINUTES: 10,           // Flat for 10 min with <10% gain = exit
-  STALE_EXIT_MIN_GAIN_PCT: 10,
-  MAX_HOLD_TIME_MINUTES: 30,        // Pump.fun tokens don't hold - 30 min max
+  ...EXIT_PARAMETERS,
 
   // ── Price Feed ──
   JUPITER_PRICE_API: 'https://api.jup.ag/price/v2',

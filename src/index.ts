@@ -39,10 +39,12 @@ async function main(): Promise<void> {
   scanner.onQualifiedToken = async (candidate: TokenCandidate) => {
     if (!trader.canTrade()) {
       log.info(MODULE, `Skipping ${candidate.symbol} - trade limit reached or insufficient budget`);
+      scanner.recordQualifiedCandidateSkipped(candidate, 'trade_limit_reached_or_insufficient_budget');
       return;
     }
 
     if (trader.hasPosition(candidate.mint)) {
+      scanner.recordQualifiedCandidateSkipped(candidate, 'position_already_open');
       return;
     }
 

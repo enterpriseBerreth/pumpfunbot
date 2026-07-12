@@ -38,6 +38,16 @@ export const log = {
   trade(module: string, msg: string) {
     format('TRADE', `${COLORS.bold}${COLORS.magenta}`, module, msg);
   },
+  telemetry(module: string, event: string, data: Record<string, unknown>) {
+    // One JSON object per event makes the Railway log stream searchable and exportable.
+    console.log(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'TELEMETRY',
+      module,
+      event,
+      ...data,
+    }));
+  },
   banner(text: string) {
     const line = '='.repeat(60);
     console.log(`\n${COLORS.cyan}${line}${COLORS.reset}`);
