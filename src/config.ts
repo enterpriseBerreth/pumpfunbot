@@ -12,9 +12,9 @@ export const CONFIG = {
   // ── Pump.fun Entry Criteria ──
   MIN_UNIQUE_BUYERS: 3,          // Excluding the developer wallet
   MIN_TOKEN_AGE_SECONDS: 10,     // Token must be at least 10 seconds old
-  MAX_TOKEN_AGE_SECONDS: 300,    // Don't buy tokens older than 5 minutes
-  MIN_BUY_SELL_RATIO: 2.0,       // At least 2x more buys than sells
-  MIN_MCAP_GROWTH_PCT: 5,        // Market cap must have grown 5% from creation
+  MAX_TOKEN_AGE_SECONDS: 600,    // Don't buy tokens older than 10 minutes
+  MIN_BUY_SELL_RATIO: 1.2,       // At least 20% more buys than sells
+  MIN_MCAP_GROWTH_PCT: 2,        // Market cap must have grown 2% from creation
   SKIP_IF_DEV_SOLD: true,        // Skip tokens where dev has already sold
 
   // ── Scanner ──
