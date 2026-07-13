@@ -28,6 +28,12 @@ export class TelegramAlert {
     capitalAfter: number;
     pnlUsd: number;
     pnlPct: number;
+    exitReason: string;
+    peakPnlPct: number;
+    worstPnlPct: number;
+    holdTime: string;
+    totalFeesUsd: number;
+    entryBuyers: number;
   }): Promise<void> {
     const pnlEmoji = data.pnlUsd >= 0 ? '🟢' : '🔴';
     const sign = data.pnlUsd >= 0 ? '+' : '';
@@ -45,6 +51,71 @@ export class TelegramAlert {
     ].join('\n');
 
     await this.send(msg);
+
+    await this.sendTradeReview(data);
+  }
+
+  private async sendTradeReview(data: {
+    tokenName: string;
+    pnlUsd: number;
+    exitReason: string;
+    peakPnlPct: number;
+    worstPnlPct: number;
+    holdTime: string;
+    totalFeesUsd: number;
+    entryBuyers: number;
+  }): Promise<void> {
+    const won = data.pnlUsd >= 0;
+    const result = won ? 'Succeeded' : 'Did not succeed';
+    const reason = this.explainOutcome(data, won);
+    const nextTest = this.suggestNextTest(data, won);
+
+    const msg = [
+      `*TRADE REVIEW — ${this.esc(data.tokenName)}*`,
+      '',
+      `*Result:* ${result}`,
+      `*Why:* ${this.esc(reason)}`,
+      `*Trade facts:* peak ${data.peakPnlPct >= 0 ? '+' : ''}${data.peakPnlPct.toFixed(1)}% | worst ${data.worstPnlPct.toFixed(1)}% | ${data.holdTime} | $${data.totalFeesUsd.toFixed(2)} fees`,
+      `*Entry context:* ${data.entryBuyers} unique buyers`,
+      `*Next test:* ${this.esc(nextTest)}`,
+      '',
+      'Paper-trade learning note: test one change at a time; this is not a profit guarantee.',
+    ].join('\n');
+
+    await this.send(msg);
+  }
+
+  private explainOutcome(data: { pnlUsd: number; exitReason: string; peakPnlPct: number }, won: boolean): string {
+    if (won) {
+      if (data.exitReason.startsWith('Take profit')) return 'Momentum reached the planned profit target before the exit.';
+      if (data.exitReason.startsWith('Collapse')) return `The position was profitable, then retraced from a ${data.peakPnlPct.toFixed(1)}% peak and triggered protection.`;
+      return `The exit rule protected a net gain after the position reached a ${data.peakPnlPct.toFixed(1)}% peak.`;
+    }
+
+    if (data.exitReason.startsWith('Stop loss')) return 'The entry lost momentum and reached the defined loss limit.';
+    if (data.exitReason.startsWith('Rapid dump')) return 'A sharp one-update selloff triggered the protective exit.';
+    if (data.exitReason.startsWith('Stale')) return 'Price failed to produce sufficient follow-through during the stale-exit window.';
+    if (data.exitReason.startsWith('Max hold')) return 'The position did not resolve before the maximum holding time.';
+    return 'The exit rule closed the position after adverse price action.';
+  }
+
+  private suggestNextTest(data: { pnlUsd: number; exitReason: string; peakPnlPct: number; entryBuyers: number }, won: boolean): string {
+    if (won && data.exitReason.startsWith('Take profit')) {
+      return 'Keep the entry and exit rules unchanged until several similar winners show whether gains continue after exit.';
+    }
+    if (won && data.exitReason.startsWith('Collapse')) {
+      return 'Compare post-exit prices before testing a tighter or looser collapse threshold.';
+    }
+    if (!won && (data.exitReason.startsWith('Stop loss') || data.exitReason.startsWith('Rapid dump'))) {
+      return 'Test a stricter entry confirmation, such as one additional positive momentum update, before changing the stop.';
+    }
+    if (!won && (data.exitReason.startsWith('Stale') || data.exitReason.startsWith('Max hold'))) {
+      return 'Test stronger initial momentum or buyer participation; do not lengthen the hold time until follow-through data supports it.';
+    }
+    if (!won && data.peakPnlPct > 0) {
+      return 'Review similar trades for post-exit movement before adjusting the trailing-collapse exit.';
+    }
+    return `Collect more examples around entries with ${data.entryBuyers} buyers before changing one parameter at a time.`;
   }
 
   // ── DAILY SUMMARY (8pm MST) ──

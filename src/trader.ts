@@ -432,6 +432,12 @@ export class PaperTrader {
       capitalAfter: this.state.budgetRemaining,
       pnlUsd: totalPnl,
       pnlPct: totalPnlPct,
+      exitReason: reason,
+      peakPnlPct: position.peakPnlPct,
+      worstPnlPct: position.worstPnlPct,
+      holdTime,
+      totalFeesUsd: position.totalFeesUsd,
+      entryBuyers: position.uniqueBuyersAtEntry,
     });
   }
 
