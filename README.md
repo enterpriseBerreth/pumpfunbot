@@ -52,8 +52,10 @@ npm run dev
 ### Entry Criteria
 - Token launched on Pump.fun
 - At least **3 unique buyers** (developer wallet excluded)
-- Token is at least **10 seconds old** (avoids instant rugs)
-- Token is less than 5 minutes old (catches early momentum)
+- Token is at least **15 seconds old** (avoids instant rugs)
+- Token is 15 seconds to 5 minutes old (catches early momentum without entering immediately)
+- At least **4% market-cap growth** and **two consecutive +1.5% market-cap updates**
+- Buy/sell ratio of at least **1.25:1**
 
 ### Exit Strategy
 | Trigger | Action |
