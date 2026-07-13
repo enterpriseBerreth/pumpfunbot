@@ -336,6 +336,8 @@ export class PumpFunScanner {
       latestMarketCapSol: token.marketCapSol,
       latestPriceSol: priceSol,
       latestPriceUsd: priceUsd,
+      lastMomentumStepPct: 0,
+      momentumConfirmations: 0,
       totalBuyVolumeSol: 0,
       lastTradeAt: Date.now(),
       qualified: false,
@@ -373,9 +375,8 @@ export class PumpFunScanner {
     const candidate = this.candidates.get(trade.mint);
     if (!candidate || candidate.qualified) return;
 
-    candidate.latestMarketCapSol = trade.marketCapSol;
-    candidate.latestPriceSol = priceSol;
-    candidate.latestPriceUsd = priceUsd;
+    const marketCapDeltaSol = Math.abs(trade.marketCapSol - candidate.latestMarketCapSol);
+    this.updateCandidateMarketCap(candidate, trade.marketCapSol);
     candidate.lastTradeAt = Date.now();
 
     if (trade.txType === 'buy') {
@@ -383,9 +384,7 @@ export class PumpFunScanner {
       if (trade.traderPublicKey !== candidate.devWallet) {
         candidate.uniqueBuyers.add(trade.traderPublicKey);
       }
-      candidate.totalBuyVolumeSol += Math.abs(
-        trade.marketCapSol - candidate.latestMarketCapSol
-      ) || 0.01;
+      candidate.totalBuyVolumeSol += marketCapDeltaSol || 0.01;
     } else {
       candidate.sellCount++;
       if (trade.traderPublicKey === candidate.devWallet) {
@@ -476,11 +475,7 @@ export class PumpFunScanner {
         candidate.sellCount = sellCount;
         candidate.devSold = devSold;
 
-        if (latestMcap > 0) {
-          candidate.latestMarketCapSol = latestMcap;
-          candidate.latestPriceSol = latestMcap / CONFIG.PUMPFUN_TOTAL_SUPPLY;
-          candidate.latestPriceUsd = candidate.latestPriceSol * solPriceUsd;
-        }
+        if (latestMcap > 0) this.updateCandidateMarketCap(candidate, latestMcap);
 
         this.checkQualification(candidate);
         return;
@@ -589,6 +584,21 @@ export class PumpFunScanner {
 
   // ── Smart Qualification Check ──
 
+  private updateCandidateMarketCap(candidate: TokenCandidate, nextMarketCapSol: number): void {
+    const previousMarketCapSol = candidate.latestMarketCapSol;
+    const stepPct = previousMarketCapSol > 0
+      ? ((nextMarketCapSol - previousMarketCapSol) / previousMarketCapSol) * 100
+      : 0;
+
+    candidate.lastMomentumStepPct = stepPct;
+    candidate.momentumConfirmations = stepPct >= CONFIG.MIN_MOMENTUM_STEP_PCT
+      ? candidate.momentumConfirmations + 1
+      : 0;
+    candidate.latestMarketCapSol = nextMarketCapSol;
+    candidate.latestPriceSol = nextMarketCapSol / CONFIG.PUMPFUN_TOTAL_SUPPLY;
+    candidate.latestPriceUsd = candidate.latestPriceSol * solPriceUsd;
+  }
+
   private evaluateCandidate(candidate: TokenCandidate): CandidateEvaluation {
     const ageSec = (Date.now() - candidate.createdAt) / 1000;
     const uniqueBuyerCount = candidate.uniqueBuyers.size;
@@ -612,6 +622,11 @@ export class PumpFunScanner {
         threshold: CONFIG.MIN_MCAP_GROWTH_PCT,
         passed: candidate.initialMarketCapSol <= 0 || mcapGrowthPct >= CONFIG.MIN_MCAP_GROWTH_PCT,
       },
+      momentumConfirmations: {
+        actual: candidate.momentumConfirmations,
+        threshold: CONFIG.MIN_CONSECUTIVE_MOMENTUM_UPDATES,
+        passed: candidate.momentumConfirmations >= CONFIG.MIN_CONSECUTIVE_MOMENTUM_UPDATES,
+      },
       developerHasSold: { actual: candidate.devSold, threshold: false, passed: !CONFIG.SKIP_IF_DEV_SOLD || !candidate.devSold },
     };
 
@@ -620,6 +635,7 @@ export class PumpFunScanner {
     if (!checks.tokenAgeSeconds.passed) rejectionReasons.push(`token_age_seconds ${ageSec.toFixed(1)} outside ${CONFIG.MIN_TOKEN_AGE_SECONDS}-${CONFIG.MAX_TOKEN_AGE_SECONDS}`);
     if (!checks.buySellRatio.passed) rejectionReasons.push(`buy_sell_ratio ${buySellRatio.toFixed(2)} < ${CONFIG.MIN_BUY_SELL_RATIO}`);
     if (!checks.marketCapGrowthPct.passed) rejectionReasons.push(`market_cap_growth_pct ${mcapGrowthPct.toFixed(2)} < ${CONFIG.MIN_MCAP_GROWTH_PCT}`);
+    if (!checks.momentumConfirmations.passed) rejectionReasons.push(`momentum_confirmations ${candidate.momentumConfirmations} < ${CONFIG.MIN_CONSECUTIVE_MOMENTUM_UPDATES} (last_step_pct ${candidate.lastMomentumStepPct.toFixed(2)})`);
     if (!checks.developerHasSold.passed) rejectionReasons.push('developer_already_sold');
 
     const passedCount = Object.values(checks).filter((check) => check.passed).length;
@@ -745,6 +761,10 @@ export class PumpFunScanner {
       if (mcapGrowthPct < CONFIG.MIN_MCAP_GROWTH_PCT) {
         return; // Market cap hasn't grown enough yet
       }
+    }
+
+    if (candidate.momentumConfirmations < CONFIG.MIN_CONSECUTIVE_MOMENTUM_UPDATES) {
+      return; // Require sustained growth, not a single price spike
     }
 
     // ── All filters passed → qualified ──

@@ -17,6 +17,7 @@ async function main(): Promise<void> {
   console.log(`  Max Concurrent:    ${CONFIG.MAX_CONCURRENT_TRADES}`);
   console.log(`  Min Buyers:        ${CONFIG.MIN_UNIQUE_BUYERS} (excl. dev)`);
   console.log(`  Min Token Age:     ${CONFIG.MIN_TOKEN_AGE_SECONDS}s`);
+  console.log(`  Momentum Confirm:  ${CONFIG.MIN_CONSECUTIVE_MOMENTUM_UPDATES} updates at +${CONFIG.MIN_MOMENTUM_STEP_PCT}% or more`);
   console.log(`  Take Profit:       +${CONFIG.TAKE_PROFIT_PCT}%`);
   console.log(`  Stop Loss:         -${CONFIG.STOP_LOSS_PCT}%`);
   console.log(`  Collapse Detect:   -${CONFIG.COLLAPSE_DROP_FROM_PEAK_PCT}% from peak (if was +${CONFIG.COLLAPSE_MIN_GAIN_PCT}%+)`);

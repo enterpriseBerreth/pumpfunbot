@@ -42,6 +42,8 @@ export interface TokenCandidate {
   latestMarketCapSol: number;
   latestPriceSol: number;
   latestPriceUsd: number;
+  lastMomentumStepPct: number;
+  momentumConfirmations: number;
   totalBuyVolumeSol: number;
   lastTradeAt: number;
   qualified: boolean;
