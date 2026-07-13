@@ -44,8 +44,9 @@ export const CONFIG = {
 
   // ── Budget ──
   STARTING_BUDGET_USD: 1000,
-  TRADE_SIZE_USD: 10,
+  TRADE_SIZE_USD: 20,
   MAX_CONCURRENT_TRADES: 10,
+  DAILY_PROFITABLE_TRADE_TARGET: 10,
 
   // ── Pump.fun Entry Criteria ──
   ...ENTRY_PARAMETERS,

@@ -452,6 +452,10 @@ export class PaperTrader {
     const open = this.getOpenPositions();
     const runtime = this.formatHoldTime(Date.now() - this.state.startTime);
     const winRate = this.getWinRate();
+    const todayStart = new Date().setUTCHours(0, 0, 0, 0);
+    const todayWins = Array.from(this.state.positions.values()).filter(
+      (position) => position.status === 'closed' && position.entryTime >= todayStart && position.pnlUsd >= 0
+    ).length;
     const sign = this.state.totalPnl >= 0 ? '+' : '';
 
     log.banner('PUMPFUNBOT STATUS');
@@ -460,6 +464,7 @@ export class PaperTrader {
     console.log(`  Budget:          $${this.state.budgetRemaining.toFixed(2)} / $${CONFIG.STARTING_BUDGET_USD}`);
     console.log(`  Total PNL:       ${sign}$${this.state.totalPnl.toFixed(2)}`);
     console.log(`  Trades:          ${this.state.tradesExecuted} (W: ${this.wins} / L: ${this.losses} | ${winRate.toFixed(0)}%)`);
+    console.log(`  Win Target:      ${todayWins} / ${CONFIG.DAILY_PROFITABLE_TRADE_TARGET} profitable trades today`);
     console.log(`  Open positions:  ${open.length} / ${CONFIG.MAX_CONCURRENT_TRADES}`);
     console.log(`  SOL Price:       $${getSolPrice().toFixed(2)}`);
     console.log(`  Sim fees:        ${CONFIG.PUMPFUN_FEE_PCT}% + ${CONFIG.BUY_SLIPPAGE_PCT}% buy slip / ${CONFIG.SELL_SLIPPAGE_PCT}% sell slip`);
