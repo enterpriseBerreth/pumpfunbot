@@ -63,7 +63,9 @@ export const CONFIG = {
   DEXSCREENER_API_BASE: 'https://api.dexscreener.com',
   POLL_INTERVAL_MS: 4_000,
   PRICE_CHECK_INTERVAL_MS: 3_000,
-  CANDIDATE_TIMEOUT_MS: 120_000,
+  // Keep candidates for the entire configured entry window so late-forming
+  // positive momentum is observable before a rejection is recorded.
+  CANDIDATE_TIMEOUT_MS: 300_000,
   WS_RECONNECT_DELAY_MS: 3_000,
   WS_MAX_RECONNECT_DELAY_MS: 30_000,
 

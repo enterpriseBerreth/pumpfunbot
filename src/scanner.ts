@@ -123,6 +123,7 @@ export class PumpFunScanner {
   private rejectedCandidates = new Map<string, RejectedCandidateTelemetry>();
   private hasApiKey: boolean;
   private totalScanned = 0;
+  private pollCursor = 0;
 
   // Callback when a token qualifies for buying
   onQualifiedToken: ((candidate: TokenCandidate) => void) | null = null;
@@ -418,8 +419,14 @@ export class PumpFunScanner {
     // Also poll held positions for price updates
     const heldMints = Array.from(this.subscribedTokens);
 
-    // Poll candidates (batch up to 5 at a time to avoid rate limits)
-    const batch = toCheck.slice(0, 5);
+    // Poll candidates in a rotating batch to avoid repeatedly sampling only
+    // the oldest candidates while newer momentum opportunities age out.
+    const batchSize = 5;
+    const start = toCheck.length > 0 ? this.pollCursor % toCheck.length : 0;
+    const batch = Array.from({ length: Math.min(batchSize, toCheck.length) }, (_, index) => (
+      toCheck[(start + index) % toCheck.length]
+    ));
+    this.pollCursor = toCheck.length > 0 ? (start + batch.length) % toCheck.length : 0;
     const promises: Promise<void>[] = [];
 
     for (const candidate of batch) {
