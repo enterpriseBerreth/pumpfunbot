@@ -7,6 +7,7 @@ import { log } from './logger.js';
 const MODULE = 'TRADER';
 
 export class PaperTrader {
+  onTradeClosed?: (position: Position) => Promise<void> | void;
   private state: BotState;
   private telegram: TelegramAlert;
   private priceInterval: ReturnType<typeof setInterval> | null = null;
@@ -186,6 +187,7 @@ export class PaperTrader {
       uniqueBuyersAtEntry: candidate.uniqueBuyers.size,
       marketCapAtEntry: candidate.latestMarketCapSol,
       capitalBeforeBuy: capitalBefore,
+      strategyConfigVersionAtEntry: CONFIG.STRATEGY_CONFIG_VERSION,
 
       previousPriceSol: candidate.latestPriceSol,
       peakGainPct: 0,
@@ -214,7 +216,7 @@ export class PaperTrader {
     );
 
     log.telemetry(MODULE, 'PAPER_TRADE_OPENED', {
-      configVersion: CONFIG.STRATEGY_CONFIG_VERSION,
+      configVersion: position.strategyConfigVersionAtEntry,
       deploymentVersion: CONFIG.DEPLOYMENT_VERSION,
       paperTrade: CONFIG.PAPER_TRADE,
       positionId: position.id,
@@ -393,7 +395,7 @@ export class PaperTrader {
     );
 
     log.telemetry(MODULE, 'PAPER_TRADE_CLOSED', {
-      configVersion: CONFIG.STRATEGY_CONFIG_VERSION,
+      configVersion: position.strategyConfigVersionAtEntry,
       deploymentVersion: CONFIG.DEPLOYMENT_VERSION,
       paperTrade: CONFIG.PAPER_TRADE,
       positionId: position.id,
@@ -439,6 +441,7 @@ export class PaperTrader {
       totalFeesUsd: position.totalFeesUsd,
       entryBuyers: position.uniqueBuyersAtEntry,
     });
+    await this.onTradeClosed?.(position);
   }
 
   // ── Status & Reporting ──

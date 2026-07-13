@@ -2,6 +2,7 @@ import { CONFIG } from './config.js';
 import { PumpFunScanner } from './scanner.js';
 import { PaperTrader } from './trader.js';
 import { TelegramAlert } from './telegram.js';
+import { PaperExperimentManager } from './experiment.js';
 import { TokenCandidate } from './types.js';
 import { log } from './logger.js';
 
@@ -35,7 +36,9 @@ async function main(): Promise<void> {
   // Initialize components
   const telegram = new TelegramAlert();
   const trader = new PaperTrader(telegram);
+  const experiments = new PaperExperimentManager(telegram);
   const scanner = new PumpFunScanner();
+  trader.onTradeClosed = async (position) => experiments.recordClosedTrade(position);
 
   // Wire up: when scanner finds a qualified token, trader buys it
   scanner.onQualifiedToken = async (candidate: TokenCandidate) => {

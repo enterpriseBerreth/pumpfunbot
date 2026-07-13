@@ -90,6 +90,7 @@ export interface Position {
   uniqueBuyersAtEntry: number;
   marketCapAtEntry: number;
   capitalBeforeBuy: number;
+  strategyConfigVersionAtEntry: string;
 
   // Smart tracking
   previousPriceSol: number;      // Previous price update (for velocity)

@@ -9,7 +9,7 @@ const ENTRY_PARAMETERS = {
   MIN_MOMENTUM_STEP_PCT: 3,
   MIN_CONSECUTIVE_MOMENTUM_UPDATES: 2,
   SKIP_IF_DEV_SOLD: true,
-} as const;
+};
 
 const EXIT_PARAMETERS = {
   TAKE_PROFIT_PCT: 25,
@@ -20,7 +20,7 @@ const EXIT_PARAMETERS = {
   STALE_EXIT_MINUTES: 4,
   STALE_EXIT_MIN_GAIN_PCT: 8,
   MAX_HOLD_TIME_MINUTES: 15,
-} as const;
+};
 
 function configFingerprint(value: unknown): string {
   const source = JSON.stringify(value);
@@ -47,6 +47,9 @@ export const CONFIG = {
   TRADE_SIZE_USD: 20,
   MAX_CONCURRENT_TRADES: 10,
   DAILY_PROFITABLE_TRADE_TARGET: 10,
+  EXPERIMENT_ENABLED: process.env.PAPER_TRADE !== 'false',
+  EXPERIMENT_SAMPLE_SIZE: 20,
+  EXPERIMENT_MAX_WIN_RATE_DROP_PCT: 5,
 
   // ── Pump.fun Entry Criteria ──
   ...ENTRY_PARAMETERS,
@@ -80,4 +83,28 @@ export const CONFIG = {
   // ── Telegram ──
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN || '',
   TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID || '',
-} as const;
+};
+
+export type AdaptiveEntryParameter =
+  | 'MIN_UNIQUE_BUYERS'
+  | 'MIN_MOMENTUM_STEP_PCT'
+  | 'MIN_CONSECUTIVE_MOMENTUM_UPDATES';
+
+const defaultAdaptiveValues: Record<AdaptiveEntryParameter, number> = {
+  MIN_UNIQUE_BUYERS: CONFIG.MIN_UNIQUE_BUYERS as number,
+  MIN_MOMENTUM_STEP_PCT: CONFIG.MIN_MOMENTUM_STEP_PCT as number,
+  MIN_CONSECUTIVE_MOMENTUM_UPDATES: CONFIG.MIN_CONSECUTIVE_MOMENTUM_UPDATES as number,
+};
+
+export function setAdaptiveEntryParameter(parameter: AdaptiveEntryParameter, value: number, experimentId: string): void {
+  CONFIG[parameter] = value;
+  CONFIG.STRATEGY_CONFIG_VERSION = `adaptive-${experimentId}-${configFingerprint({ entry: {
+    MIN_UNIQUE_BUYERS: CONFIG.MIN_UNIQUE_BUYERS,
+    MIN_MOMENTUM_STEP_PCT: CONFIG.MIN_MOMENTUM_STEP_PCT,
+    MIN_CONSECUTIVE_MOMENTUM_UPDATES: CONFIG.MIN_CONSECUTIVE_MOMENTUM_UPDATES,
+  }, exit: EXIT_PARAMETERS })}`;
+}
+
+export function resetAdaptiveEntryParameter(parameter: AdaptiveEntryParameter, experimentId: string): void {
+  setAdaptiveEntryParameter(parameter, defaultAdaptiveValues[parameter], experimentId);
+}

@@ -164,6 +164,10 @@ export class TelegramAlert {
     await this.send(lines.join('\n'));
   }
 
+  async sendExperimentAlert(message: string): Promise<void> {
+    await this.send([`*PAPER EXPERIMENT*`, '', this.esc(message), '', 'Paper trading only — one parameter is tested at a time.'].join('\n'));
+  }
+
   private generateInsight(stats: import('./types.js').DailyStats): string {
     if (stats.trades === 0) {
       return 'No trades executed today. Consider lowering MIN\\_UNIQUE\\_BUYERS from 3 to 2, or increasing MAX\\_TOKEN\\_AGE to capture more candidates.';
