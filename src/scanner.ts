@@ -463,6 +463,14 @@ export class PumpFunScanner {
           }
         }
 
+        // The trade-list endpoint can return historical trades without a fresh
+        // market_cap value. Refresh it from the coin endpoint before applying
+        // the growth filter so the decision uses the current quote.
+        const coinData = await this.fetchPumpFunCoin(candidate.mint);
+        if (coinData && coinData.market_cap > 0) {
+          latestMcap = coinData.market_cap;
+        }
+
         candidate.uniqueBuyers = uniqueBuyers;
         candidate.buyCount = buyCount;
         candidate.sellCount = sellCount;
