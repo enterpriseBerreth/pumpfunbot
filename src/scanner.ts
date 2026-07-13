@@ -493,6 +493,13 @@ export class PumpFunScanner {
       if (dexData) {
         candidate.latestPriceUsd = dexData.priceUsd;
         candidate.latestPriceSol = dexData.priceUsd / solPriceUsd;
+        // DexScreener is the fallback market-data feed when Pump.fun's trade
+        // endpoint is unavailable. Feed its quote and recent flow into the
+        // same momentum checks used for real-time PumpPortal events.
+        const marketCapSol = (dexData.priceUsd * CONFIG.PUMPFUN_TOTAL_SUPPLY) / solPriceUsd;
+        if (marketCapSol > 0) this.updateCandidateMarketCap(candidate, marketCapSol);
+        candidate.buyCount = dexData.buyTxns;
+        candidate.sellCount = dexData.sellTxns;
         // Use txn count as proxy for unique buyers (rough estimate)
         if (dexData.buyTxns >= CONFIG.MIN_UNIQUE_BUYERS) {
           // DexScreener doesn't give unique wallets, but buy txn count is a decent proxy
