@@ -54,8 +54,9 @@ npm run dev
 - At least **3 unique buyers** (developer wallet excluded)
 - Token is at least **15 seconds old** (avoids instant rugs)
 - Token is 15 seconds to 5 minutes old (catches early momentum without entering immediately)
-- At least **4% market-cap growth** and **two consecutive +1.5% market-cap updates**
-- Buy/sell ratio of at least **1.25:1**
+- At least **5% market-cap growth** and **two consecutive +2% market-cap updates**
+- Buy/sell ratio of at least **1.4:1**
+- At most **10 new entries per UTC day**, with no more than **5 concurrent positions**
 
 ### Exit Strategy
 | Trigger | Action |
