@@ -16,7 +16,6 @@ async function main(): Promise<void> {
   console.log(`  Budget:            $${CONFIG.STARTING_BUDGET_USD}`);
   console.log(`  Trade Size:        $${CONFIG.TRADE_SIZE_USD}`);
   console.log(`  Max Concurrent:    ${CONFIG.MAX_CONCURRENT_TRADES}`);
-  console.log(`  Daily Entry Limit: ${CONFIG.MAX_DAILY_TRADES}`);
   console.log(`  Daily Win Target:  ${CONFIG.DAILY_PROFITABLE_TRADE_TARGET} profitable paper trades`);
   console.log(`  Min Buyers:        ${CONFIG.MIN_UNIQUE_BUYERS} (excl. dev)`);
   console.log(`  Min Token Age:     ${CONFIG.MIN_TOKEN_AGE_SECONDS}s`);

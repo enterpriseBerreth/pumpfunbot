@@ -40,16 +40,8 @@ export class PaperTrader {
   canTrade(): boolean {
     return (
       this.openPositionCount < CONFIG.MAX_CONCURRENT_TRADES &&
-      this.getTradesEnteredToday() < CONFIG.MAX_DAILY_TRADES &&
       this.state.budgetRemaining >= CONFIG.TRADE_SIZE_USD
     );
-  }
-
-  private getTradesEnteredToday(): number {
-    const todayStart = new Date().setUTCHours(0, 0, 0, 0);
-    return Array.from(this.state.positions.values())
-      .filter((position) => position.entryTime >= todayStart)
-      .length;
   }
 
   hasPosition(mint: string): boolean {
@@ -482,7 +474,6 @@ export class PaperTrader {
     console.log(`  Total PNL:       ${sign}$${this.state.totalPnl.toFixed(2)}`);
     console.log(`  Trades:          ${this.state.tradesExecuted} (W: ${this.wins} / L: ${this.losses} | ${winRate.toFixed(0)}%)`);
     console.log(`  Win Target:      ${todayWins} / ${CONFIG.DAILY_PROFITABLE_TRADE_TARGET} profitable trades today`);
-    console.log(`  Daily entries:   ${this.getTradesEnteredToday()} / ${CONFIG.MAX_DAILY_TRADES}`);
     console.log(`  Open positions:  ${open.length} / ${CONFIG.MAX_CONCURRENT_TRADES}`);
     console.log(`  SOL Price:       $${getSolPrice().toFixed(2)}`);
     console.log(`  Sim fees:        ${CONFIG.PUMPFUN_FEE_PCT}% + ${CONFIG.BUY_SLIPPAGE_PCT}% buy slip / ${CONFIG.SELL_SLIPPAGE_PCT}% sell slip`);

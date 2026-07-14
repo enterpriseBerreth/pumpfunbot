@@ -56,7 +56,7 @@ npm run dev
 - Token is 15 seconds to 5 minutes old (catches early momentum without entering immediately)
 - At least **5% market-cap growth** and **two consecutive +2% market-cap updates**
 - Buy/sell ratio of at least **1.4:1**
-- At most **10 new entries per UTC day**, with no more than **5 concurrent positions**
+- No more than **5 concurrent positions**
 
 ### Exit Strategy
 | Trigger | Action |
