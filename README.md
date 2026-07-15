@@ -56,6 +56,7 @@ npm run dev
 - Token is 15 seconds to 5 minutes old (catches early momentum without entering immediately)
 - At least **8% market-cap growth** and **three consecutive +3% market-cap updates**
 - Buy/sell ratio of at least **1.6:1**
+- Rejects tokens after more than **250% cumulative growth** or a single **20%** price spike (anti-chase protection)
 - No more than **5 concurrent positions**
 
 ### Exit Strategy
@@ -66,6 +67,10 @@ npm run dev
 | 5% rapid dump | Full sell |
 | 6% decline from peak after a 12% gain | Full sell |
 | 15% loss | Full sell |
+
+### Capital Protection
+- Pause new entries after **$100** of realized paper losses in a UTC day; resumes automatically at the next UTC day.
+- Per-trade lesson telemetry remains on; automatic parameter experiments are disabled unless explicitly enabled.
 
 ### Trailing Stop Tiers
 | Profit Level | Trail Distance |

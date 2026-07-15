@@ -639,6 +639,16 @@ export class PumpFunScanner {
         threshold: CONFIG.MIN_MCAP_GROWTH_PCT,
         passed: candidate.initialMarketCapSol <= 0 || mcapGrowthPct >= CONFIG.MIN_MCAP_GROWTH_PCT,
       },
+      antiChaseMarketCapGrowth: {
+        actual: Number(mcapGrowthPct.toFixed(3)),
+        threshold: CONFIG.MAX_MCAP_GROWTH_PCT,
+        passed: mcapGrowthPct <= CONFIG.MAX_MCAP_GROWTH_PCT,
+      },
+      antiChaseMomentumStep: {
+        actual: Number(candidate.lastMomentumStepPct.toFixed(3)),
+        threshold: CONFIG.MAX_MOMENTUM_STEP_PCT,
+        passed: candidate.lastMomentumStepPct <= CONFIG.MAX_MOMENTUM_STEP_PCT,
+      },
       momentumConfirmations: {
         actual: candidate.momentumConfirmations,
         threshold: CONFIG.MIN_CONSECUTIVE_MOMENTUM_UPDATES,
@@ -652,6 +662,8 @@ export class PumpFunScanner {
     if (!checks.tokenAgeSeconds.passed) rejectionReasons.push(`token_age_seconds ${ageSec.toFixed(1)} outside ${CONFIG.MIN_TOKEN_AGE_SECONDS}-${CONFIG.MAX_TOKEN_AGE_SECONDS}`);
     if (!checks.buySellRatio.passed) rejectionReasons.push(`buy_sell_ratio ${buySellRatio.toFixed(2)} < ${CONFIG.MIN_BUY_SELL_RATIO}`);
     if (!checks.marketCapGrowthPct.passed) rejectionReasons.push(`market_cap_growth_pct ${mcapGrowthPct.toFixed(2)} < ${CONFIG.MIN_MCAP_GROWTH_PCT}`);
+    if (!checks.antiChaseMarketCapGrowth.passed) rejectionReasons.push(`market_cap_growth_pct ${mcapGrowthPct.toFixed(2)} > anti_chase_max ${CONFIG.MAX_MCAP_GROWTH_PCT}`);
+    if (!checks.antiChaseMomentumStep.passed) rejectionReasons.push(`momentum_step_pct ${candidate.lastMomentumStepPct.toFixed(2)} > anti_chase_max ${CONFIG.MAX_MOMENTUM_STEP_PCT}`);
     if (!checks.momentumConfirmations.passed) rejectionReasons.push(`momentum_confirmations ${candidate.momentumConfirmations} < ${CONFIG.MIN_CONSECUTIVE_MOMENTUM_UPDATES} (last_step_pct ${candidate.lastMomentumStepPct.toFixed(2)})`);
     if (!checks.developerHasSold.passed) rejectionReasons.push('developer_already_sold');
 
@@ -764,6 +776,16 @@ export class PumpFunScanner {
       return;
     }
 
+    const mcapGrowthPct = candidate.initialMarketCapSol > 0
+      ? ((candidate.latestMarketCapSol - candidate.initialMarketCapSol) / candidate.initialMarketCapSol) * 100
+      : 0;
+    if (mcapGrowthPct > CONFIG.MAX_MCAP_GROWTH_PCT || candidate.lastMomentumStepPct > CONFIG.MAX_MOMENTUM_STEP_PCT) {
+      log.info(MODULE, `SKIP ${candidate.symbol}: overextended momentum (${mcapGrowthPct.toFixed(1)}% growth, ${candidate.lastMomentumStepPct.toFixed(1)}% step)`);
+      this.recordRejectedCandidate(candidate, this.evaluateCandidate(candidate), 'filter_rejection');
+      candidate.qualified = true;
+      return;
+    }
+
     // ── Smart Filter 2: Buy/sell ratio (momentum check) ──
     const buySellRatio = candidate.sellCount > 0
       ? candidate.buyCount / candidate.sellCount
@@ -774,7 +796,6 @@ export class PumpFunScanner {
 
     // ── Smart Filter 3: Market cap must have grown from creation ──
     if (candidate.initialMarketCapSol > 0) {
-      const mcapGrowthPct = ((candidate.latestMarketCapSol - candidate.initialMarketCapSol) / candidate.initialMarketCapSol) * 100;
       if (mcapGrowthPct < CONFIG.MIN_MCAP_GROWTH_PCT) {
         return; // Market cap hasn't grown enough yet
       }

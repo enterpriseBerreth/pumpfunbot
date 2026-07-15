@@ -17,8 +17,6 @@ export class PaperExperimentManager {
   constructor(private telegram: TelegramAlert) {}
 
   async recordClosedTrade(position: Position): Promise<void> {
-    if (!CONFIG.EXPERIMENT_ENABLED || !CONFIG.PAPER_TRADE) return;
-
     log.telemetry(MODULE, 'PAPER_TRADE_LESSON', {
       configVersion: position.strategyConfigVersionAtEntry,
       mint: position.mint,
@@ -34,6 +32,7 @@ export class PaperExperimentManager {
       peakPnlPct: position.peakPnlPct,
       worstPnlPct: position.worstPnlPct,
     });
+    if (!CONFIG.EXPERIMENT_ENABLED || !CONFIG.PAPER_TRADE) return;
     this.sample.push({ pnlPct: position.pnlPct, won: position.pnlUsd >= 0, exitReason: position.exitReason || 'unknown' });
     if (this.sample.length < CONFIG.EXPERIMENT_SAMPLE_SIZE) return;
 

@@ -7,7 +7,9 @@ const ENTRY_PARAMETERS = {
   MAX_TOKEN_AGE_SECONDS: 300,
   MIN_BUY_SELL_RATIO: 1.6,
   MIN_MCAP_GROWTH_PCT: 8,
+  MAX_MCAP_GROWTH_PCT: 250,
   MIN_MOMENTUM_STEP_PCT: 3,
+  MAX_MOMENTUM_STEP_PCT: 20,
   MIN_CONSECUTIVE_MOMENTUM_UPDATES: 3,
   SKIP_IF_DEV_SOLD: true,
 };
@@ -48,8 +50,11 @@ export const CONFIG = {
   STARTING_BUDGET_USD: 1000,
   TRADE_SIZE_USD: 20,
   MAX_CONCURRENT_TRADES: 5,
+  DAILY_LOSS_LIMIT_USD: 100,
   DAILY_PROFITABLE_TRADE_TARGET: 7,
-  EXPERIMENT_ENABLED: process.env.PAPER_TRADE !== 'false',
+  // Keep learning telemetry on, but require explicit opt-in before parameters
+  // are automatically changed by paper-trade experiments.
+  EXPERIMENT_ENABLED: process.env.EXPERIMENT_ENABLED === 'true' && process.env.PAPER_TRADE !== 'false',
   EXPERIMENT_SAMPLE_SIZE: 20,
   EXPERIMENT_MAX_WIN_RATE_DROP_PCT: 5,
 

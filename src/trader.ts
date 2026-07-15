@@ -41,8 +41,16 @@ export class PaperTrader {
   canTrade(): boolean {
     return (
       this.openPositionCount < CONFIG.MAX_CONCURRENT_TRADES &&
+      this.getTodayRealizedPnl() > -CONFIG.DAILY_LOSS_LIMIT_USD &&
       this.state.budgetRemaining >= CONFIG.TRADE_SIZE_USD
     );
+  }
+
+  private getTodayRealizedPnl(): number {
+    const todayStart = new Date().setUTCHours(0, 0, 0, 0);
+    return Array.from(this.state.positions.values())
+      .filter((position) => position.status === 'closed' && position.entryTime >= todayStart)
+      .reduce((sum, position) => sum + position.pnlUsd, 0);
   }
 
   hasPosition(mint: string): boolean {
@@ -511,6 +519,7 @@ export class PaperTrader {
     console.log(`  Runtime:         ${runtime}`);
     console.log(`  Budget:          $${this.state.budgetRemaining.toFixed(2)} / $${CONFIG.STARTING_BUDGET_USD}`);
     console.log(`  Total PNL:       ${sign}$${this.state.totalPnl.toFixed(2)}`);
+    console.log(`  Today realized:  $${this.getTodayRealizedPnl().toFixed(2)} (circuit breaker: -$${CONFIG.DAILY_LOSS_LIMIT_USD})`);
     console.log(`  Trades:          ${this.state.tradesExecuted} (W: ${this.wins} / L: ${this.losses} | ${winRate.toFixed(0)}%)`);
     console.log(`  Win Target:      ${todayWins} / ${CONFIG.DAILY_PROFITABLE_TRADE_TARGET} profitable trades today`);
     console.log(`  Open positions:  ${open.length} / ${CONFIG.MAX_CONCURRENT_TRADES}`);
