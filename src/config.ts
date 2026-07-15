@@ -88,6 +88,16 @@ export const CONFIG = {
   SELL_SLIPPAGE_PCT: 1.5,
   SOLANA_TX_FEE_SOL: 0.000005,
   PRIORITY_FEE_SOL: 0.005,
+  // Optional RPC-backed fee sampling for paper-fill realism. The static fee
+  // remains the safe fallback when no RPC endpoint is configured.
+  SOLANA_RPC_URL: process.env.SOLANA_RPC_URL || '',
+  DYNAMIC_PRIORITY_FEE_ENABLED: process.env.DYNAMIC_PRIORITY_FEE_ENABLED !== 'false',
+  PRIORITY_FEE_MIN_SOL: 0.001,
+  PRIORITY_FEE_MAX_SOL: 0.02,
+  // This only models the additional tip/cost of a private route. It never
+  // signs, broadcasts, or submits a real transaction.
+  PRIVATE_SUBMISSION_SIMULATION: process.env.PRIVATE_SUBMISSION_SIMULATION === 'true',
+  PRIVATE_SUBMISSION_TIP_SOL: 0.001,
 
   // ── Exit Strategy (simple + smart) ──
   ...EXIT_PARAMETERS,

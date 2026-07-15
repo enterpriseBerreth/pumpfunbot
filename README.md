@@ -8,6 +8,7 @@ Automated Pump.fun trading bot with paper trading, trailing exits, and Telegram 
 - **Smart entry criteria**: Requires 3+ unique buyers (excluding developer) and 10s+ token age
 - **Paper trading mode** with $100 starting budget
 - **Structured paper-trade telemetry** for candidate decisions, missed-entry follow-ups, and exit quality
+- **Execution-route simulation** with optional live RPC priority-fee sampling and private-route tip modeling; no real transaction is signed or submitted
 - **$10 per trade** with intelligent position sizing
 - **Tiered take-profit**: Sells at +50%, +75%, +100% to lock in gains
 - **Moon bag strategy**: Rides remaining 25% with trailing stops for max profit
@@ -94,6 +95,9 @@ npm run dev
 |----------|----------|---------|-------------|
 | `PAPER_TRADE` | No | `true` | Paper trading mode |
 | `STRATEGY_VERSION` | No | Derived from parameters | Optional label for a strategy experiment in telemetry logs |
+| `SOLANA_RPC_URL` | No | - | Optional Solana RPC endpoint used to sample recent priority fees for paper fills |
+| `DYNAMIC_PRIORITY_FEE_ENABLED` | No | `true` | Uses sampled priority fees when an RPC URL is configured; otherwise uses the static fallback |
+| `PRIVATE_SUBMISSION_SIMULATION` | No | `false` | Models a private-route tip and records route telemetry; never sends a private transaction |
 | `TELEGRAM_BOT_TOKEN` | For alerts | - | Telegram bot token |
 | `TELEGRAM_CHAT_ID` | For alerts | - | Telegram chat ID |
 

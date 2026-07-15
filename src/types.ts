@@ -95,6 +95,10 @@ export interface Position {
   momentumConfirmationsAtEntry: number;
   capitalBeforeBuy: number;
   strategyConfigVersionAtEntry: string;
+  entryExecutionRoute: 'public_rpc_simulated' | 'private_bundle_simulated';
+  entryPriorityFeeSol: number;
+  entryPrivateTipSol: number;
+  entryPriorityFeeSource: 'rpc_recent_fees' | 'static_fallback';
 
   // Smart tracking
   previousPriceSol: number;      // Previous price update (for velocity)

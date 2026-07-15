@@ -6,6 +6,13 @@ import { log } from './logger.js';
 
 const MODULE = 'TRADER';
 
+type ExecutionProfile = {
+  route: 'public_rpc_simulated' | 'private_bundle_simulated';
+  priorityFeeSol: number;
+  privateTipSol: number;
+  priorityFeeSource: 'rpc_recent_fees' | 'static_fallback';
+};
+
 export class PaperTrader {
   onTradeClosed?: (position: Position) => Promise<void> | void;
   private state: BotState;
@@ -84,7 +91,46 @@ export class PaperTrader {
 
   // ── Realistic Fill Simulation ──
 
-  private simulateBuyFill(marketPriceSol: number, sizeUsd: number): {
+  private async getExecutionProfile(): Promise<ExecutionProfile> {
+    let priorityFeeSol = CONFIG.PRIORITY_FEE_SOL;
+    let priorityFeeSource: ExecutionProfile['priorityFeeSource'] = 'static_fallback';
+
+    if (CONFIG.DYNAMIC_PRIORITY_FEE_ENABLED && CONFIG.SOLANA_RPC_URL) {
+      try {
+        const response = await fetch(CONFIG.SOLANA_RPC_URL, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getRecentPrioritizationFees', params: [] }),
+          signal: AbortSignal.timeout(5_000),
+        });
+        const payload = await response.json() as { result?: Array<{ prioritizationFee?: number }> };
+        const fees = (payload.result ?? [])
+          .map((item) => item.prioritizationFee)
+          .filter((fee): fee is number => typeof fee === 'number' && Number.isFinite(fee) && fee >= 0)
+          .sort((left, right) => left - right);
+
+        if (fees.length > 0) {
+          const percentileFeeLamports = fees[Math.floor((fees.length - 1) * 0.75)];
+          priorityFeeSol = Math.min(
+            CONFIG.PRIORITY_FEE_MAX_SOL,
+            Math.max(CONFIG.PRIORITY_FEE_MIN_SOL, percentileFeeLamports / 1_000_000_000),
+          );
+          priorityFeeSource = 'rpc_recent_fees';
+        }
+      } catch (error) {
+        log.warn(MODULE, `Priority-fee sample unavailable; using static fallback: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    return {
+      route: CONFIG.PRIVATE_SUBMISSION_SIMULATION ? 'private_bundle_simulated' : 'public_rpc_simulated',
+      priorityFeeSol,
+      privateTipSol: CONFIG.PRIVATE_SUBMISSION_SIMULATION ? CONFIG.PRIVATE_SUBMISSION_TIP_SOL : 0,
+      priorityFeeSource,
+    };
+  }
+
+  private simulateBuyFill(marketPriceSol: number, sizeUsd: number, execution: ExecutionProfile): {
     fillPriceSol: number;
     fillPriceUsd: number;
     tokensAcquired: number;
@@ -97,7 +143,7 @@ export class PaperTrader {
     const platformFeeUsd = sizeUsd * (CONFIG.PUMPFUN_FEE_PCT / 100);
 
     // 2. Solana network fee + priority fee
-    const networkFeeUsd = (CONFIG.SOLANA_TX_FEE_SOL + CONFIG.PRIORITY_FEE_SOL) * solPrice;
+    const networkFeeUsd = (CONFIG.SOLANA_TX_FEE_SOL + execution.priorityFeeSol + execution.privateTipSol) * solPrice;
 
     // 3. Total fees
     const totalFeeUsd = platformFeeUsd + networkFeeUsd;
@@ -121,7 +167,7 @@ export class PaperTrader {
     };
   }
 
-  private simulateSellFill(marketPriceSol: number, tokensToSell: number): {
+  private simulateSellFill(marketPriceSol: number, tokensToSell: number, execution: ExecutionProfile): {
     fillPriceSol: number;
     fillPriceUsd: number;
     grossProceedsUsd: number;
@@ -141,7 +187,7 @@ export class PaperTrader {
     const platformFeeUsd = grossProceedsUsd * (CONFIG.PUMPFUN_FEE_PCT / 100);
 
     // 4. Network fee
-    const networkFeeUsd = (CONFIG.SOLANA_TX_FEE_SOL + CONFIG.PRIORITY_FEE_SOL) * solPrice;
+    const networkFeeUsd = (CONFIG.SOLANA_TX_FEE_SOL + execution.priorityFeeSol + execution.privateTipSol) * solPrice;
 
     // 5. Net proceeds
     const feeUsd = platformFeeUsd + networkFeeUsd;
@@ -181,7 +227,8 @@ export class PaperTrader {
       : 0;
 
     // Simulate realistic buy fill
-    const fill = this.simulateBuyFill(candidate.latestPriceSol, sizeUsd);
+    const execution = await this.getExecutionProfile();
+    const fill = this.simulateBuyFill(candidate.latestPriceSol, sizeUsd, execution);
 
     // Deduct full trade size from budget (user pays $10 total)
     this.state.budgetRemaining -= sizeUsd;
@@ -225,6 +272,10 @@ export class PaperTrader {
       momentumConfirmationsAtEntry: candidate.momentumConfirmations,
       capitalBeforeBuy: capitalBefore,
       strategyConfigVersionAtEntry: CONFIG.STRATEGY_CONFIG_VERSION,
+      entryExecutionRoute: execution.route,
+      entryPriorityFeeSol: execution.priorityFeeSol,
+      entryPrivateTipSol: execution.privateTipSol,
+      entryPriorityFeeSource: execution.priorityFeeSource,
 
       previousPriceSol: candidate.latestPriceSol,
       peakGainPct: 0,
@@ -271,6 +322,10 @@ export class PaperTrader {
       tradeSizeUsd: position.initialSizeUsd,
       buyFeesUsd: fill.totalFeeUsd,
       buySlippagePct: CONFIG.BUY_SLIPPAGE_PCT,
+      entryExecutionRoute: position.entryExecutionRoute,
+      entryPriorityFeeSol: position.entryPriorityFeeSol,
+      entryPrivateTipSol: position.entryPrivateTipSol,
+      entryPriorityFeeSource: position.entryPriorityFeeSource,
     });
 
     // No Telegram alert on buy — only alert after final sell
@@ -416,7 +471,8 @@ export class PaperTrader {
     const tokensToSell = position.remainingTokens;
 
     // Simulate realistic sell fill
-    const fill = this.simulateSellFill(position.currentPriceSol, tokensToSell);
+    const execution = await this.getExecutionProfile();
+    const fill = this.simulateSellFill(position.currentPriceSol, tokensToSell, execution);
 
     position.soldUsd += fill.netProceedsUsd;
     position.totalFeesUsd += fill.feeUsd;
@@ -475,6 +531,14 @@ export class PaperTrader {
       totalFeesUsd: position.totalFeesUsd,
       exitTrigger: reason,
       sellSlippagePct: CONFIG.SELL_SLIPPAGE_PCT,
+      entryExecutionRoute: position.entryExecutionRoute,
+      entryPriorityFeeSol: position.entryPriorityFeeSol,
+      entryPrivateTipSol: position.entryPrivateTipSol,
+      entryPriorityFeeSource: position.entryPriorityFeeSource,
+      exitExecutionRoute: execution.route,
+      exitPriorityFeeSol: execution.priorityFeeSol,
+      exitPrivateTipSol: execution.privateTipSol,
+      exitPriorityFeeSource: execution.priorityFeeSource,
     });
 
     const event: TradeEvent = {
