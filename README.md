@@ -57,6 +57,7 @@ npm run dev
 - At least **8% market-cap growth** and **three consecutive +3% market-cap updates**
 - Buy/sell ratio of at least **1.6:1**
 - Rejects tokens after more than **250% cumulative growth** or a single **20%** price spike (anti-chase protection)
+- Rejects entries above **120 SOL** market cap and repeat launches by the same developer within 30 minutes
 - No more than **5 concurrent positions**
 
 ### Exit Strategy
@@ -71,6 +72,7 @@ npm run dev
 ### Capital Protection
 - Pause new entries after **$100** of realized paper losses in a UTC day; resumes automatically at the next UTC day.
 - Per-trade lesson telemetry remains on; automatic parameter experiments are disabled unless explicitly enabled.
+- Uses **$10** base paper positions; only high-conviction signals qualify for the **$20** size.
 
 ### Trailing Stop Tiers
 | Profit Level | Trail Distance |

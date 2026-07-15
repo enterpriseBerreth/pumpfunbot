@@ -124,6 +124,7 @@ export class PumpFunScanner {
   private hasApiKey: boolean;
   private totalScanned = 0;
   private pollCursor = 0;
+  private developerLaunches = new Map<string, number[]>();
 
   // Callback when a token qualifies for buying
   onQualifiedToken: ((candidate: TokenCandidate) => void) | null = null;
@@ -322,6 +323,7 @@ export class PumpFunScanner {
     if (this.candidates.has(token.mint)) return;
 
     this.totalScanned++;
+    this.recordDeveloperLaunch(token.traderPublicKey);
     const priceSol = token.marketCapSol / CONFIG.PUMPFUN_TOTAL_SUPPLY;
     const priceUsd = priceSol * solPriceUsd;
 
@@ -601,6 +603,22 @@ export class PumpFunScanner {
 
   // ── Smart Qualification Check ──
 
+  private recordDeveloperLaunch(wallet: string): void {
+    const now = Date.now();
+    const recent = (this.developerLaunches.get(wallet) ?? [])
+      .filter((createdAt) => now - createdAt <= CONFIG.DEVELOPER_LAUNCH_WINDOW_MS);
+    recent.push(now);
+    this.developerLaunches.set(wallet, recent);
+  }
+
+  private getRecentDeveloperLaunches(wallet: string): number {
+    const now = Date.now();
+    const recent = (this.developerLaunches.get(wallet) ?? [])
+      .filter((createdAt) => now - createdAt <= CONFIG.DEVELOPER_LAUNCH_WINDOW_MS);
+    this.developerLaunches.set(wallet, recent);
+    return recent.length;
+  }
+
   private updateCandidateMarketCap(candidate: TokenCandidate, nextMarketCapSol: number): void {
     const previousMarketCapSol = candidate.latestMarketCapSol;
     const stepPct = previousMarketCapSol > 0
@@ -625,6 +643,7 @@ export class PumpFunScanner {
     const mcapGrowthPct = candidate.initialMarketCapSol > 0
       ? ((candidate.latestMarketCapSol - candidate.initialMarketCapSol) / candidate.initialMarketCapSol) * 100
       : 0;
+    const recentDeveloperLaunches = this.getRecentDeveloperLaunches(candidate.devWallet);
 
     const checks = {
       uniqueBuyers: { actual: uniqueBuyerCount, threshold: CONFIG.MIN_UNIQUE_BUYERS, passed: uniqueBuyerCount >= CONFIG.MIN_UNIQUE_BUYERS },
@@ -649,6 +668,16 @@ export class PumpFunScanner {
         threshold: CONFIG.MAX_MOMENTUM_STEP_PCT,
         passed: candidate.lastMomentumStepPct <= CONFIG.MAX_MOMENTUM_STEP_PCT,
       },
+      entryMarketCap: {
+        actual: Number(candidate.latestMarketCapSol.toFixed(3)),
+        threshold: CONFIG.MAX_ENTRY_MARKET_CAP_SOL,
+        passed: candidate.latestMarketCapSol <= CONFIG.MAX_ENTRY_MARKET_CAP_SOL,
+      },
+      developerLaunchVelocity: {
+        actual: recentDeveloperLaunches,
+        threshold: CONFIG.MAX_DEVELOPER_LAUNCHES_IN_WINDOW,
+        passed: recentDeveloperLaunches <= CONFIG.MAX_DEVELOPER_LAUNCHES_IN_WINDOW,
+      },
       momentumConfirmations: {
         actual: candidate.momentumConfirmations,
         threshold: CONFIG.MIN_CONSECUTIVE_MOMENTUM_UPDATES,
@@ -664,6 +693,8 @@ export class PumpFunScanner {
     if (!checks.marketCapGrowthPct.passed) rejectionReasons.push(`market_cap_growth_pct ${mcapGrowthPct.toFixed(2)} < ${CONFIG.MIN_MCAP_GROWTH_PCT}`);
     if (!checks.antiChaseMarketCapGrowth.passed) rejectionReasons.push(`market_cap_growth_pct ${mcapGrowthPct.toFixed(2)} > anti_chase_max ${CONFIG.MAX_MCAP_GROWTH_PCT}`);
     if (!checks.antiChaseMomentumStep.passed) rejectionReasons.push(`momentum_step_pct ${candidate.lastMomentumStepPct.toFixed(2)} > anti_chase_max ${CONFIG.MAX_MOMENTUM_STEP_PCT}`);
+    if (!checks.entryMarketCap.passed) rejectionReasons.push(`entry_market_cap_sol ${candidate.latestMarketCapSol.toFixed(2)} > max ${CONFIG.MAX_ENTRY_MARKET_CAP_SOL}`);
+    if (!checks.developerLaunchVelocity.passed) rejectionReasons.push(`developer_launches ${recentDeveloperLaunches} > max ${CONFIG.MAX_DEVELOPER_LAUNCHES_IN_WINDOW} in window`);
     if (!checks.momentumConfirmations.passed) rejectionReasons.push(`momentum_confirmations ${candidate.momentumConfirmations} < ${CONFIG.MIN_CONSECUTIVE_MOMENTUM_UPDATES} (last_step_pct ${candidate.lastMomentumStepPct.toFixed(2)})`);
     if (!checks.developerHasSold.passed) rejectionReasons.push('developer_already_sold');
 
@@ -781,6 +812,13 @@ export class PumpFunScanner {
       : 0;
     if (mcapGrowthPct > CONFIG.MAX_MCAP_GROWTH_PCT || candidate.lastMomentumStepPct > CONFIG.MAX_MOMENTUM_STEP_PCT) {
       log.info(MODULE, `SKIP ${candidate.symbol}: overextended momentum (${mcapGrowthPct.toFixed(1)}% growth, ${candidate.lastMomentumStepPct.toFixed(1)}% step)`);
+      this.recordRejectedCandidate(candidate, this.evaluateCandidate(candidate), 'filter_rejection');
+      candidate.qualified = true;
+      return;
+    }
+
+    if (candidate.latestMarketCapSol > CONFIG.MAX_ENTRY_MARKET_CAP_SOL || this.getRecentDeveloperLaunches(candidate.devWallet) > CONFIG.MAX_DEVELOPER_LAUNCHES_IN_WINDOW) {
+      log.info(MODULE, `SKIP ${candidate.symbol}: late market cap or repeat developer launch`);
       this.recordRejectedCandidate(candidate, this.evaluateCandidate(candidate), 'filter_rejection');
       candidate.qualified = true;
       return;

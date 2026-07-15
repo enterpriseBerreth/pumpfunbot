@@ -38,11 +38,11 @@ export class PaperTrader {
     return count;
   }
 
-  canTrade(): boolean {
+  canTrade(requiredSizeUsd = CONFIG.TRADE_SIZE_USD): boolean {
     return (
       this.openPositionCount < CONFIG.MAX_CONCURRENT_TRADES &&
       this.getTodayRealizedPnl() > -CONFIG.DAILY_LOSS_LIMIT_USD &&
-      this.state.budgetRemaining >= CONFIG.TRADE_SIZE_USD
+      this.state.budgetRemaining >= requiredSizeUsd
     );
   }
 
@@ -159,9 +159,9 @@ export class PaperTrader {
   // ── Buy Execution ──
 
   async executeBuy(candidate: TokenCandidate): Promise<void> {
-    const sizeUsd = CONFIG.TRADE_SIZE_USD;
+    const sizeUsd = this.getTradeSize(candidate);
 
-    if (!this.canTrade()) {
+    if (!this.canTrade(sizeUsd)) {
       log.warn(MODULE, 'Cannot trade - limit reached or insufficient budget');
       return;
     }
@@ -277,6 +277,18 @@ export class PaperTrader {
   }
 
   // ── Price Update (called from WebSocket trade events) ──
+
+  private getTradeSize(candidate: TokenCandidate): number {
+    const buySellRatio = candidate.sellCount > 0 ? candidate.buyCount / candidate.sellCount : candidate.buyCount;
+    const marketCapGrowthPct = candidate.initialMarketCapSol > 0
+      ? ((candidate.latestMarketCapSol - candidate.initialMarketCapSol) / candidate.initialMarketCapSol) * 100
+      : 0;
+    const isHighConviction = candidate.uniqueBuyers.size >= CONFIG.HIGH_CONVICTION_MIN_UNIQUE_BUYERS
+      && buySellRatio >= CONFIG.HIGH_CONVICTION_MIN_BUY_SELL_RATIO
+      && marketCapGrowthPct >= CONFIG.HIGH_CONVICTION_MIN_MCAP_GROWTH_PCT
+      && candidate.momentumConfirmations >= CONFIG.HIGH_CONVICTION_MIN_MOMENTUM_CONFIRMATIONS;
+    return isHighConviction ? CONFIG.HIGH_CONVICTION_TRADE_SIZE_USD : CONFIG.TRADE_SIZE_USD;
+  }
 
   updatePrice(mint: string, priceSol: number, priceUsd: number): void {
     const position = this.state.positions.get(mint);
