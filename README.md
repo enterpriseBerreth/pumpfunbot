@@ -51,20 +51,20 @@ npm run dev
 
 ### Entry Criteria
 - Token launched on Pump.fun
-- At least **11 unique buyers** (developer wallet excluded)
+- At least **7 unique buyers** (developer wallet excluded)
 - Token is at least **15 seconds old** (avoids instant rugs)
 - Token is 15 seconds to 5 minutes old (catches early momentum without entering immediately)
-- At least **5% market-cap growth** and **two consecutive +2% market-cap updates**
-- Buy/sell ratio of at least **1.4:1**
+- At least **8% market-cap growth** and **three consecutive +3% market-cap updates**
+- Buy/sell ratio of at least **1.6:1**
 - No more than **5 concurrent positions**
 
 ### Exit Strategy
 | Trigger | Action |
 |---------|--------|
 | 4 consecutive unique sellers | Full sell |
-| +25% gain | Full sell |
-| 7% rapid dump | Full sell |
-| 8% decline from peak after a 12% gain | Full sell |
+| +40% gain | Full sell |
+| 5% rapid dump | Full sell |
+| 6% decline from peak after a 12% gain | Full sell |
 | 15% loss | Full sell |
 
 ### Trailing Stop Tiers
