@@ -14,6 +14,7 @@ export class PaperTrader {
   private tradeLog: TradeEvent[] = [];
   private wins = 0;
   private losses = 0;
+  private consecutiveSellers = new Map<string, Set<string>>();
 
   constructor(telegram: TelegramAlert) {
     this.telegram = telegram;
@@ -47,6 +48,24 @@ export class PaperTrader {
   hasPosition(mint: string): boolean {
     const pos = this.state.positions.get(mint);
     return !!pos && (pos.status === 'open' || pos.status === 'partial');
+  }
+
+  recordTokenTrade(mint: string, side: 'buy' | 'sell', traderPublicKey: string): void {
+    const position = this.state.positions.get(mint);
+    if (!position || position.status === 'closed') return;
+
+    if (side === 'buy') {
+      this.consecutiveSellers.delete(mint);
+      return;
+    }
+
+    const sellers = this.consecutiveSellers.get(mint) ?? new Set<string>();
+    sellers.add(traderPublicKey);
+    this.consecutiveSellers.set(mint, sellers);
+
+    if (sellers.size >= CONFIG.CONSECUTIVE_UNIQUE_SELLS_TO_EXIT) {
+      void this.executeSell(position, `Order-flow exit: ${sellers.size} consecutive unique sellers`);
+    }
   }
 
   getOpenMints(): string[] {
@@ -371,6 +390,7 @@ export class PaperTrader {
     position.remainingSizeUsd = 0;
     position.status = 'closed';
     position.exitReason = reason;
+    this.consecutiveSellers.delete(position.mint);
 
     // Return net proceeds to budget
     this.state.budgetRemaining += fill.netProceedsUsd;

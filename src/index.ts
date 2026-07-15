@@ -70,6 +70,10 @@ async function main(): Promise<void> {
     }
   };
 
+  scanner.onTokenTrade = (mint, side, traderPublicKey) => {
+    trader.recordTokenTrade(mint, side, traderPublicKey);
+  };
+
   // Start all systems
   await scanner.start();
   trader.startPriceMonitor();

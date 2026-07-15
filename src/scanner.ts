@@ -129,6 +129,8 @@ export class PumpFunScanner {
   onQualifiedToken: ((candidate: TokenCandidate) => void) | null = null;
   // Callback for price updates on tokens we hold
   onPriceUpdate: ((mint: string, priceSol: number, priceUsd: number, marketCapSol: number) => void) | null = null;
+  // Callback for real-time order-flow updates on tokens we hold.
+  onTokenTrade: ((mint: string, side: 'buy' | 'sell', traderPublicKey: string) => void) | null = null;
 
   constructor() {
     this.hasApiKey = CONFIG.PUMPPORTAL_API_KEY.length > 0;
@@ -372,6 +374,7 @@ export class PumpFunScanner {
 
     // Update price for held positions
     this.onPriceUpdate?.(trade.mint, priceSol, priceUsd, trade.marketCapSol);
+    this.onTokenTrade?.(trade.mint, trade.txType, trade.traderPublicKey);
 
     const candidate = this.candidates.get(trade.mint);
     if (!candidate || candidate.qualified) return;

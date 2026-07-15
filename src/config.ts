@@ -2,7 +2,7 @@ import 'dotenv/config';
 
 const ENTRY_PARAMETERS = {
   // Broader discovery, while every entry still requires verified upward momentum.
-  MIN_UNIQUE_BUYERS: 3,
+  MIN_UNIQUE_BUYERS: 11,
   MIN_TOKEN_AGE_SECONDS: 15,
   MAX_TOKEN_AGE_SECONDS: 300,
   MIN_BUY_SELL_RATIO: 1.4,
@@ -13,6 +13,7 @@ const ENTRY_PARAMETERS = {
 };
 
 const EXIT_PARAMETERS = {
+  CONSECUTIVE_UNIQUE_SELLS_TO_EXIT: 4,
   TAKE_PROFIT_PCT: 25,
   STOP_LOSS_PCT: 15,
   COLLAPSE_DROP_FROM_PEAK_PCT: 8,
