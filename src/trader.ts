@@ -165,6 +165,12 @@ export class PaperTrader {
 
     const capitalBefore = this.state.budgetRemaining;
     const solPrice = getSolPrice();
+    const buySellRatio = candidate.sellCount > 0
+      ? candidate.buyCount / candidate.sellCount
+      : candidate.buyCount;
+    const marketCapGrowthPct = candidate.initialMarketCapSol > 0
+      ? ((candidate.latestMarketCapSol - candidate.initialMarketCapSol) / candidate.initialMarketCapSol) * 100
+      : 0;
 
     // Simulate realistic buy fill
     const fill = this.simulateBuyFill(candidate.latestPriceSol, sizeUsd);
@@ -205,6 +211,10 @@ export class PaperTrader {
 
       uniqueBuyersAtEntry: candidate.uniqueBuyers.size,
       marketCapAtEntry: candidate.latestMarketCapSol,
+      buySellRatioAtEntry: buySellRatio,
+      marketCapGrowthPctAtEntry: marketCapGrowthPct,
+      momentumStepPctAtEntry: candidate.lastMomentumStepPct,
+      momentumConfirmationsAtEntry: candidate.momentumConfirmations,
       capitalBeforeBuy: capitalBefore,
       strategyConfigVersionAtEntry: CONFIG.STRATEGY_CONFIG_VERSION,
 
@@ -246,6 +256,10 @@ export class PaperTrader {
       entryFillPriceUsd: position.entryPriceUsd,
       entryMarketCapSol: position.marketCapAtEntry,
       entryUniqueBuyers: position.uniqueBuyersAtEntry,
+      entryBuySellRatio: position.buySellRatioAtEntry,
+      entryMarketCapGrowthPct: position.marketCapGrowthPctAtEntry,
+      entryMomentumStepPct: position.momentumStepPctAtEntry,
+      entryMomentumConfirmations: position.momentumConfirmationsAtEntry,
       tradeSizeUsd: position.initialSizeUsd,
       buyFeesUsd: fill.totalFeeUsd,
       buySlippagePct: CONFIG.BUY_SLIPPAGE_PCT,
@@ -432,6 +446,11 @@ export class PaperTrader {
       peakPnlPct: position.peakPnlPct,
       worstPnlPct: position.worstPnlPct,
       peakMarketGainPct: position.peakGainPct,
+      entryUniqueBuyers: position.uniqueBuyersAtEntry,
+      entryBuySellRatio: position.buySellRatioAtEntry,
+      entryMarketCapGrowthPct: position.marketCapGrowthPctAtEntry,
+      entryMomentumStepPct: position.momentumStepPctAtEntry,
+      entryMomentumConfirmations: position.momentumConfirmationsAtEntry,
       holdTimeSec: Math.round((Date.now() - position.entryTime) / 1000),
       totalFeesUsd: position.totalFeesUsd,
       exitTrigger: reason,

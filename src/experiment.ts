@@ -19,6 +19,21 @@ export class PaperExperimentManager {
   async recordClosedTrade(position: Position): Promise<void> {
     if (!CONFIG.EXPERIMENT_ENABLED || !CONFIG.PAPER_TRADE) return;
 
+    log.telemetry(MODULE, 'PAPER_TRADE_LESSON', {
+      configVersion: position.strategyConfigVersionAtEntry,
+      mint: position.mint,
+      symbol: position.symbol,
+      won: position.pnlUsd >= 0,
+      pnlPct: position.pnlPct,
+      exitReason: position.exitReason || 'unknown',
+      entryUniqueBuyers: position.uniqueBuyersAtEntry,
+      entryBuySellRatio: position.buySellRatioAtEntry,
+      entryMarketCapGrowthPct: position.marketCapGrowthPctAtEntry,
+      entryMomentumStepPct: position.momentumStepPctAtEntry,
+      entryMomentumConfirmations: position.momentumConfirmationsAtEntry,
+      peakPnlPct: position.peakPnlPct,
+      worstPnlPct: position.worstPnlPct,
+    });
     this.sample.push({ pnlPct: position.pnlPct, won: position.pnlUsd >= 0, exitReason: position.exitReason || 'unknown' });
     if (this.sample.length < CONFIG.EXPERIMENT_SAMPLE_SIZE) return;
 

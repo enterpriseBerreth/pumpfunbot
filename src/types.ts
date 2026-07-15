@@ -89,6 +89,10 @@ export interface Position {
 
   uniqueBuyersAtEntry: number;
   marketCapAtEntry: number;
+  buySellRatioAtEntry: number;
+  marketCapGrowthPctAtEntry: number;
+  momentumStepPctAtEntry: number;
+  momentumConfirmationsAtEntry: number;
   capitalBeforeBuy: number;
   strategyConfigVersionAtEntry: string;
 
