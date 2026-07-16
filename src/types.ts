@@ -44,6 +44,9 @@ export interface TokenCandidate {
   latestPriceUsd: number;
   lastMomentumStepPct: number;
   momentumConfirmations: number;
+  momentumWindowGrowthPct: number;
+  momentumSamples: Array<{ at: number; marketCapSol: number }>;
+  developerLaunchesAtEntry: number;
   totalBuyVolumeSol: number;
   lastTradeAt: number;
   qualified: boolean;
@@ -93,6 +96,8 @@ export interface Position {
   marketCapGrowthPctAtEntry: number;
   momentumStepPctAtEntry: number;
   momentumConfirmationsAtEntry: number;
+  momentumWindowGrowthPctAtEntry: number;
+  developerLaunchesAtEntry: number;
   capitalBeforeBuy: number;
   strategyConfigVersionAtEntry: string;
   entryExecutionRoute: 'public_rpc_simulated' | 'private_bundle_simulated';

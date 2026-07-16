@@ -125,6 +125,7 @@ export class PumpFunScanner {
   private totalScanned = 0;
   private pollCursor = 0;
   private developerLaunches = new Map<string, number[]>();
+  private websocketForbidden = false;
 
   // Callback when a token qualifies for buying
   onQualifiedToken: ((candidate: TokenCandidate) => void) | null = null;
@@ -237,7 +238,7 @@ export class PumpFunScanner {
   // ── WebSocket Connection ──
 
   private connect(): void {
-    if (!this.shouldRun) return;
+    if (!this.shouldRun || this.websocketForbidden) return;
 
     // Include API key in URL if available
     const wsUrl = this.hasApiKey
@@ -286,11 +287,15 @@ export class PumpFunScanner {
 
     this.ws.on('error', (err: Error) => {
       log.error(MODULE, `WebSocket error: ${err.message}`);
+      if (err.message.includes('403') && CONFIG.WS_DISABLE_AFTER_FORBIDDEN) {
+        this.websocketForbidden = true;
+        log.warn(MODULE, 'PumpPortal rejected the configured API key. Real-time subscriptions paused; polling remains active. Configure a valid, funded PUMPPORTAL_API_KEY to restore live order-flow.');
+      }
     });
 
     this.ws.on('close', () => {
       log.warn(MODULE, 'WebSocket disconnected');
-      if (this.shouldRun) {
+      if (this.shouldRun && !this.websocketForbidden) {
         log.info(MODULE, `Reconnecting in ${this.reconnectDelay / 1000}s...`);
         setTimeout(() => this.connect(), this.reconnectDelay);
         this.reconnectDelay = Math.min(
@@ -343,6 +348,9 @@ export class PumpFunScanner {
       latestPriceUsd: priceUsd,
       lastMomentumStepPct: 0,
       momentumConfirmations: 0,
+      momentumWindowGrowthPct: 0,
+      momentumSamples: [{ at: Date.now(), marketCapSol: token.marketCapSol }],
+      developerLaunchesAtEntry: this.getRecentDeveloperLaunches(token.traderPublicKey),
       totalBuyVolumeSol: 0,
       lastTradeAt: Date.now(),
       qualified: false,
@@ -426,7 +434,7 @@ export class PumpFunScanner {
 
     // Poll candidates in a rotating batch to avoid repeatedly sampling only
     // the oldest candidates while newer momentum opportunities age out.
-    const batchSize = 5;
+    const batchSize = CONFIG.CANDIDATE_POLL_BATCH_SIZE;
     const start = toCheck.length > 0 ? this.pollCursor % toCheck.length : 0;
     const batch = Array.from({ length: Math.min(batchSize, toCheck.length) }, (_, index) => (
       toCheck[(start + index) % toCheck.length]
@@ -632,6 +640,13 @@ export class PumpFunScanner {
     candidate.latestMarketCapSol = nextMarketCapSol;
     candidate.latestPriceSol = nextMarketCapSol / CONFIG.PUMPFUN_TOTAL_SUPPLY;
     candidate.latestPriceUsd = candidate.latestPriceSol * solPriceUsd;
+    const now = Date.now();
+    candidate.momentumSamples.push({ at: now, marketCapSol: nextMarketCapSol });
+    candidate.momentumSamples = candidate.momentumSamples.filter((sample) => now - sample.at <= CONFIG.MOMENTUM_WINDOW_MS);
+    const windowStart = candidate.momentumSamples[0];
+    candidate.momentumWindowGrowthPct = windowStart && windowStart.marketCapSol > 0
+      ? ((nextMarketCapSol - windowStart.marketCapSol) / windowStart.marketCapSol) * 100
+      : 0;
   }
 
   private evaluateCandidate(candidate: TokenCandidate): CandidateEvaluation {
@@ -644,6 +659,7 @@ export class PumpFunScanner {
       ? ((candidate.latestMarketCapSol - candidate.initialMarketCapSol) / candidate.initialMarketCapSol) * 100
       : 0;
     const recentDeveloperLaunches = this.getRecentDeveloperLaunches(candidate.devWallet);
+    candidate.developerLaunchesAtEntry = recentDeveloperLaunches;
 
     const checks = {
       uniqueBuyers: { actual: uniqueBuyerCount, threshold: CONFIG.MIN_UNIQUE_BUYERS, passed: uniqueBuyerCount >= CONFIG.MIN_UNIQUE_BUYERS },
@@ -676,7 +692,12 @@ export class PumpFunScanner {
       developerLaunchVelocity: {
         actual: recentDeveloperLaunches,
         threshold: CONFIG.MAX_DEVELOPER_LAUNCHES_IN_WINDOW,
-        passed: recentDeveloperLaunches <= CONFIG.MAX_DEVELOPER_LAUNCHES_IN_WINDOW,
+        passed: true,
+      },
+      momentumWindow: {
+        actual: Number(candidate.momentumWindowGrowthPct.toFixed(3)),
+        threshold: CONFIG.MAX_MOMENTUM_WINDOW_GROWTH_PCT,
+        passed: candidate.momentumWindowGrowthPct <= CONFIG.MAX_MOMENTUM_WINDOW_GROWTH_PCT,
       },
       momentumConfirmations: {
         actual: candidate.momentumConfirmations,
@@ -694,7 +715,7 @@ export class PumpFunScanner {
     if (!checks.antiChaseMarketCapGrowth.passed) rejectionReasons.push(`market_cap_growth_pct ${mcapGrowthPct.toFixed(2)} > anti_chase_max ${CONFIG.MAX_MCAP_GROWTH_PCT}`);
     if (!checks.antiChaseMomentumStep.passed) rejectionReasons.push(`momentum_step_pct ${candidate.lastMomentumStepPct.toFixed(2)} > anti_chase_max ${CONFIG.MAX_MOMENTUM_STEP_PCT}`);
     if (!checks.entryMarketCap.passed) rejectionReasons.push(`entry_market_cap_sol ${candidate.latestMarketCapSol.toFixed(2)} > max ${CONFIG.MAX_ENTRY_MARKET_CAP_SOL}`);
-    if (!checks.developerLaunchVelocity.passed) rejectionReasons.push(`developer_launches ${recentDeveloperLaunches} > max ${CONFIG.MAX_DEVELOPER_LAUNCHES_IN_WINDOW} in window`);
+    if (!checks.momentumWindow.passed) rejectionReasons.push(`momentum_window_growth_pct ${candidate.momentumWindowGrowthPct.toFixed(2)} > anti_chase_max ${CONFIG.MAX_MOMENTUM_WINDOW_GROWTH_PCT}`);
     if (!checks.momentumConfirmations.passed) rejectionReasons.push(`momentum_confirmations ${candidate.momentumConfirmations} < ${CONFIG.MIN_CONSECUTIVE_MOMENTUM_UPDATES} (last_step_pct ${candidate.lastMomentumStepPct.toFixed(2)})`);
     if (!checks.developerHasSold.passed) rejectionReasons.push('developer_already_sold');
 
@@ -810,15 +831,15 @@ export class PumpFunScanner {
     const mcapGrowthPct = candidate.initialMarketCapSol > 0
       ? ((candidate.latestMarketCapSol - candidate.initialMarketCapSol) / candidate.initialMarketCapSol) * 100
       : 0;
-    if (mcapGrowthPct > CONFIG.MAX_MCAP_GROWTH_PCT || candidate.lastMomentumStepPct > CONFIG.MAX_MOMENTUM_STEP_PCT) {
+    if (mcapGrowthPct > CONFIG.MAX_MCAP_GROWTH_PCT || candidate.momentumWindowGrowthPct > CONFIG.MAX_MOMENTUM_WINDOW_GROWTH_PCT) {
       log.info(MODULE, `SKIP ${candidate.symbol}: overextended momentum (${mcapGrowthPct.toFixed(1)}% growth, ${candidate.lastMomentumStepPct.toFixed(1)}% step)`);
       this.recordRejectedCandidate(candidate, this.evaluateCandidate(candidate), 'filter_rejection');
       candidate.qualified = true;
       return;
     }
 
-    if (candidate.latestMarketCapSol > CONFIG.MAX_ENTRY_MARKET_CAP_SOL || this.getRecentDeveloperLaunches(candidate.devWallet) > CONFIG.MAX_DEVELOPER_LAUNCHES_IN_WINDOW) {
-      log.info(MODULE, `SKIP ${candidate.symbol}: late market cap or repeat developer launch`);
+    if (candidate.latestMarketCapSol > CONFIG.MAX_ENTRY_MARKET_CAP_SOL) {
+      log.info(MODULE, `SKIP ${candidate.symbol}: late market cap`);
       this.recordRejectedCandidate(candidate, this.evaluateCandidate(candidate), 'filter_rejection');
       candidate.qualified = true;
       return;
@@ -868,6 +889,8 @@ export class PumpFunScanner {
       score: evaluation.score,
       checks: evaluation.checks,
       rejectionReasons: evaluation.rejectionReasons,
+      developerLaunches: this.getRecentDeveloperLaunches(candidate.devWallet),
+      momentumWindowGrowthPct: candidate.momentumWindowGrowthPct,
     });
 
     this.onQualifiedToken?.(candidate);
@@ -885,6 +908,15 @@ export class PumpFunScanner {
       if (age > CONFIG.CANDIDATE_TIMEOUT_MS) {
         expired.push(mint);
       }
+    }
+
+    const overflow = Math.max(0, this.candidates.size - CONFIG.MAX_ACTIVE_CANDIDATES);
+    if (overflow > 0) {
+      const leastRecent = Array.from(this.candidates.values())
+        .filter((candidate) => !candidate.qualified)
+        .sort((left, right) => left.lastTradeAt - right.lastTradeAt)
+        .slice(0, overflow);
+      expired.push(...leastRecent.map((candidate) => candidate.mint));
     }
 
     if (expired.length > 0) {

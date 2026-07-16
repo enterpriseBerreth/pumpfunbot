@@ -270,6 +270,8 @@ export class PaperTrader {
       marketCapGrowthPctAtEntry: marketCapGrowthPct,
       momentumStepPctAtEntry: candidate.lastMomentumStepPct,
       momentumConfirmationsAtEntry: candidate.momentumConfirmations,
+      momentumWindowGrowthPctAtEntry: candidate.momentumWindowGrowthPct,
+      developerLaunchesAtEntry: candidate.developerLaunchesAtEntry,
       capitalBeforeBuy: capitalBefore,
       strategyConfigVersionAtEntry: CONFIG.STRATEGY_CONFIG_VERSION,
       entryExecutionRoute: execution.route,
@@ -319,6 +321,8 @@ export class PaperTrader {
       entryMarketCapGrowthPct: position.marketCapGrowthPctAtEntry,
       entryMomentumStepPct: position.momentumStepPctAtEntry,
       entryMomentumConfirmations: position.momentumConfirmationsAtEntry,
+      entryMomentumWindowGrowthPct: position.momentumWindowGrowthPctAtEntry,
+      entryDeveloperLaunches: position.developerLaunchesAtEntry,
       tradeSizeUsd: position.initialSizeUsd,
       buyFeesUsd: fill.totalFeeUsd,
       buySlippagePct: CONFIG.BUY_SLIPPAGE_PCT,
@@ -341,8 +345,12 @@ export class PaperTrader {
     const isHighConviction = candidate.uniqueBuyers.size >= CONFIG.HIGH_CONVICTION_MIN_UNIQUE_BUYERS
       && buySellRatio >= CONFIG.HIGH_CONVICTION_MIN_BUY_SELL_RATIO
       && marketCapGrowthPct >= CONFIG.HIGH_CONVICTION_MIN_MCAP_GROWTH_PCT
-      && candidate.momentumConfirmations >= CONFIG.HIGH_CONVICTION_MIN_MOMENTUM_CONFIRMATIONS;
-    return isHighConviction ? CONFIG.HIGH_CONVICTION_TRADE_SIZE_USD : CONFIG.TRADE_SIZE_USD;
+      && candidate.momentumConfirmations >= CONFIG.HIGH_CONVICTION_MIN_MOMENTUM_CONFIRMATIONS
+      && candidate.developerLaunchesAtEntry <= CONFIG.MAX_DEVELOPER_LAUNCHES_IN_WINDOW;
+    if (isHighConviction) return CONFIG.HIGH_CONVICTION_TRADE_SIZE_USD;
+    if (candidate.momentumConfirmations >= CONFIG.MIN_CONSECUTIVE_MOMENTUM_UPDATES + 1
+      && candidate.developerLaunchesAtEntry <= CONFIG.MAX_DEVELOPER_LAUNCHES_IN_WINDOW) return CONFIG.TRADE_SIZE_USD;
+    return CONFIG.PROBE_TRADE_SIZE_USD;
   }
 
   updatePrice(mint: string, priceSol: number, priceUsd: number): void {
@@ -527,6 +535,8 @@ export class PaperTrader {
       entryMarketCapGrowthPct: position.marketCapGrowthPctAtEntry,
       entryMomentumStepPct: position.momentumStepPctAtEntry,
       entryMomentumConfirmations: position.momentumConfirmationsAtEntry,
+      entryMomentumWindowGrowthPct: position.momentumWindowGrowthPctAtEntry,
+      entryDeveloperLaunches: position.developerLaunchesAtEntry,
       holdTimeSec: Math.round((Date.now() - position.entryTime) / 1000),
       totalFeesUsd: position.totalFeesUsd,
       exitTrigger: reason,

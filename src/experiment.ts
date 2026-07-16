@@ -29,6 +29,11 @@ export class PaperExperimentManager {
       entryMarketCapGrowthPct: position.marketCapGrowthPctAtEntry,
       entryMomentumStepPct: position.momentumStepPctAtEntry,
       entryMomentumConfirmations: position.momentumConfirmationsAtEntry,
+      entryMomentumWindowGrowthPct: position.momentumWindowGrowthPctAtEntry,
+      entryDeveloperLaunches: position.developerLaunchesAtEntry,
+      entryTradeSizeUsd: position.initialSizeUsd,
+      entryPriorityFeeSol: position.entryPriorityFeeSol,
+      entryExecutionRoute: position.entryExecutionRoute,
       peakPnlPct: position.peakPnlPct,
       worstPnlPct: position.worstPnlPct,
     });

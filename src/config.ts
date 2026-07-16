@@ -49,6 +49,7 @@ export const CONFIG = {
 
   // ── Budget ──
   STARTING_BUDGET_USD: 1000,
+  PROBE_TRADE_SIZE_USD: 5,
   TRADE_SIZE_USD: 10,
   HIGH_CONVICTION_TRADE_SIZE_USD: 20,
   HIGH_CONVICTION_MIN_UNIQUE_BUYERS: 15,
@@ -76,11 +77,14 @@ export const CONFIG = {
   PRICE_CHECK_INTERVAL_MS: 3_000,
   // Keep candidates for the entire configured entry window so late-forming
   // positive momentum is observable before a rejection is recorded.
-  CANDIDATE_TIMEOUT_MS: 300_000,
+  CANDIDATE_TIMEOUT_MS: 120_000,
+  MAX_ACTIVE_CANDIDATES: 250,
+  CANDIDATE_POLL_BATCH_SIZE: 20,
   DEVELOPER_LAUNCH_WINDOW_MS: 30 * 60_000,
   MAX_DEVELOPER_LAUNCHES_IN_WINDOW: 1,
   WS_RECONNECT_DELAY_MS: 3_000,
   WS_MAX_RECONNECT_DELAY_MS: 30_000,
+  WS_DISABLE_AFTER_FORBIDDEN: true,
 
   // ── Realistic Simulation (fees, slippage, priority) ──
   PUMPFUN_FEE_PCT: 1,
@@ -98,6 +102,8 @@ export const CONFIG = {
   // signs, broadcasts, or submits a real transaction.
   PRIVATE_SUBMISSION_SIMULATION: process.env.PRIVATE_SUBMISSION_SIMULATION === 'true',
   PRIVATE_SUBMISSION_TIP_SOL: 0.001,
+  MOMENTUM_WINDOW_MS: 30_000,
+  MAX_MOMENTUM_WINDOW_GROWTH_PCT: 80,
 
   // ── Exit Strategy (simple + smart) ──
   ...EXIT_PARAMETERS,
