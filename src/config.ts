@@ -2,16 +2,18 @@ import 'dotenv/config';
 
 const ENTRY_PARAMETERS = {
   // Broader discovery, while every entry still requires verified upward momentum.
-  MIN_UNIQUE_BUYERS: 7,
+  // A small, verified buyer cohort is enough for a probe entry; sizing still
+  // scales only after stronger continuation confirms.
+  MIN_UNIQUE_BUYERS: 3,
   MIN_TOKEN_AGE_SECONDS: 15,
   MAX_TOKEN_AGE_SECONDS: 300,
-  MIN_BUY_SELL_RATIO: 1.6,
-  MIN_MCAP_GROWTH_PCT: 8,
+  MIN_BUY_SELL_RATIO: 1.3,
+  MIN_MCAP_GROWTH_PCT: 5,
   MAX_MCAP_GROWTH_PCT: 250,
   MAX_ENTRY_MARKET_CAP_SOL: 120,
-  MIN_MOMENTUM_STEP_PCT: 3,
+  MIN_MOMENTUM_STEP_PCT: 2,
   MAX_MOMENTUM_STEP_PCT: 20,
-  MIN_CONSECUTIVE_MOMENTUM_UPDATES: 3,
+  MIN_CONSECUTIVE_MOMENTUM_UPDATES: 1,
   SKIP_IF_DEV_SOLD: true,
 };
 

@@ -469,15 +469,18 @@ export class PumpFunScanner {
 
   private async pollTokenTrades(candidate: TokenCandidate): Promise<void> {
     try {
-      // Try Pump.fun Frontend API first
+      // Read Pump.fun's trade list first, but do not treat an empty/stale list
+      // as authoritative. New tokens frequently return HTTP success before the
+      // endpoint exposes their flow; in that case DexScreener remains the
+      // active quote/flow fallback instead of leaving the candidate at zero.
       const trades = await this.fetchPumpFunTrades(candidate.mint);
-      if (trades !== null) {
-        const uniqueBuyers = new Set<string>();
-        let latestMcap = candidate.latestMarketCapSol;
-        let buyCount = 0;
-        let sellCount = 0;
-        let devSold = false;
+      const uniqueBuyers = new Set<string>();
+      let latestMcap = candidate.latestMarketCapSol;
+      let buyCount = 0;
+      let sellCount = 0;
+      let devSold = false;
 
+      if (trades !== null) {
         for (const trade of trades) {
           if (trade.is_buy) {
             buyCount++;
@@ -495,46 +498,39 @@ export class PumpFunScanner {
           }
         }
 
-        // The trade-list endpoint can return historical trades without a fresh
-        // market_cap value. Refresh it from the coin endpoint before applying
-        // the growth filter so the decision uses the current quote.
-        const coinData = await this.fetchPumpFunCoin(candidate.mint);
-        if (coinData && coinData.market_cap > 0) {
-          latestMcap = coinData.market_cap;
-        }
-
-        candidate.uniqueBuyers = uniqueBuyers;
-        candidate.buyCount = buyCount;
-        candidate.sellCount = sellCount;
-        candidate.devSold = devSold;
-
-        if (latestMcap > 0) this.updateCandidateMarketCap(candidate, latestMcap);
-
-        this.checkQualification(candidate);
-        return;
       }
 
-      // Fallback: DexScreener
+      // The trade-list endpoint can return historical trades without a fresh
+      // market_cap value. Refresh it before applying the growth filter.
+      const coinData = await this.fetchPumpFunCoin(candidate.mint);
+      if (coinData && coinData.market_cap > 0) {
+        latestMcap = coinData.market_cap;
+      }
+
+      // Always consult DexScreener as a secondary feed. This avoids a false
+      // "successful" but empty Pump.fun response suppressing the only usable
+      // recent transaction and quote data for a fresh candidate.
       const dexData = await this.fetchDexScreenerData(candidate.mint);
       if (dexData) {
         candidate.latestPriceUsd = dexData.priceUsd;
         candidate.latestPriceSol = dexData.priceUsd / solPriceUsd;
-        // DexScreener is the fallback market-data feed when Pump.fun's trade
-        // endpoint is unavailable. Feed its quote and recent flow into the
-        // same momentum checks used for real-time PumpPortal events.
         const marketCapSol = (dexData.priceUsd * CONFIG.PUMPFUN_TOTAL_SUPPLY) / solPriceUsd;
-        if (marketCapSol > 0) this.updateCandidateMarketCap(candidate, marketCapSol);
-        candidate.buyCount = dexData.buyTxns;
-        candidate.sellCount = dexData.sellTxns;
-        // Use txn count as proxy for unique buyers (rough estimate)
-        if (dexData.buyTxns >= CONFIG.MIN_UNIQUE_BUYERS) {
-          // DexScreener doesn't give unique wallets, but buy txn count is a decent proxy
-          for (let i = candidate.uniqueBuyers.size; i < dexData.buyTxns; i++) {
-            candidate.uniqueBuyers.add(`dex-buyer-${i}`);
-          }
+        if (marketCapSol > 0) latestMcap = marketCapSol;
+        buyCount = Math.max(buyCount, dexData.buyTxns);
+        sellCount = Math.max(sellCount, dexData.sellTxns);
+        // DexScreener supplies transaction counts rather than wallets. Use a
+        // clearly labelled proxy only to fill missing real-time wallet flow.
+        for (let i = uniqueBuyers.size; i < dexData.buyTxns; i++) {
+          uniqueBuyers.add(`dex-buyer-${i}`);
         }
-        this.checkQualification(candidate);
       }
+
+      candidate.uniqueBuyers = uniqueBuyers;
+      candidate.buyCount = buyCount;
+      candidate.sellCount = sellCount;
+      candidate.devSold = devSold;
+      if (latestMcap > 0) this.updateCandidateMarketCap(candidate, latestMcap);
+      this.checkQualification(candidate);
     } catch (err) {
       // Silently ignore polling errors for individual tokens
     }
