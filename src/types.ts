@@ -35,6 +35,7 @@ export interface TokenCandidate {
   devWallet: string;
   createdAt: number;
   uniqueBuyers: Set<string>;
+  consecutiveUniqueBuyers: Set<string>;
   buyCount: number;
   sellCount: number;
   devSold: boolean;              // True if dev wallet has sold

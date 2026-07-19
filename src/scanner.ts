@@ -351,6 +351,7 @@ export class PumpFunScanner {
       devWallet: token.traderPublicKey,
       createdAt: Date.now(),
       uniqueBuyers: new Set<string>(),
+      consecutiveUniqueBuyers: new Set<string>(),
       buyCount: 0,
       sellCount: 0,
       devSold: false,
@@ -410,10 +411,13 @@ export class PumpFunScanner {
       candidate.buyCount++;
       if (trade.traderPublicKey !== candidate.devWallet) {
         candidate.uniqueBuyers.add(trade.traderPublicKey);
+        candidate.consecutiveUniqueBuyers.add(trade.traderPublicKey);
       }
       candidate.totalBuyVolumeSol += marketCapDeltaSol || 0.01;
     } else {
       candidate.sellCount++;
+      // The entry signal is a run of buys. Any sell breaks that run.
+      candidate.consecutiveUniqueBuyers.clear();
       if (trade.traderPublicKey === candidate.devWallet) {
         candidate.devSold = true;
       }
@@ -479,16 +483,22 @@ export class PumpFunScanner {
       let buyCount = 0;
       let sellCount = 0;
       let devSold = false;
+      const consecutiveUniqueBuyers = new Set<string>();
 
       if (trades !== null) {
-        for (const trade of trades) {
+        // Rebuild the current buy run from the ordered HTTP history so polling
+        // follows the same "no sell between buys" rule as real-time events.
+        const orderedTrades = [...trades].sort((a, b) => a.timestamp - b.timestamp || a.tx_index - b.tx_index);
+        for (const trade of orderedTrades) {
           if (trade.is_buy) {
             buyCount++;
             if (trade.user !== candidate.devWallet) {
               uniqueBuyers.add(trade.user);
+              consecutiveUniqueBuyers.add(trade.user);
             }
           } else {
             sellCount++;
+            consecutiveUniqueBuyers.clear();
             if (trade.user === candidate.devWallet) {
               devSold = true;
             }
@@ -526,6 +536,7 @@ export class PumpFunScanner {
       }
 
       candidate.uniqueBuyers = uniqueBuyers;
+      if (trades !== null) candidate.consecutiveUniqueBuyers = consecutiveUniqueBuyers;
       candidate.buyCount = buyCount;
       candidate.sellCount = sellCount;
       candidate.devSold = devSold;
@@ -660,7 +671,7 @@ export class PumpFunScanner {
 
   private evaluateCandidate(candidate: TokenCandidate): CandidateEvaluation {
     const ageSec = (Date.now() - candidate.createdAt) / 1000;
-    const uniqueBuyerCount = candidate.uniqueBuyers.size;
+    const uniqueBuyerCount = candidate.consecutiveUniqueBuyers.size;
     const buySellRatio = candidate.sellCount > 0
       ? candidate.buyCount / candidate.sellCount
       : candidate.buyCount;
@@ -822,7 +833,7 @@ export class PumpFunScanner {
     if (candidate.qualified) return;
 
     const ageSec = (Date.now() - candidate.createdAt) / 1000;
-    const uniqueBuyerCount = candidate.uniqueBuyers.size;
+    const uniqueBuyerCount = candidate.consecutiveUniqueBuyers.size;
 
     // Basic requirements
     if (uniqueBuyerCount < CONFIG.MIN_UNIQUE_BUYERS) return;
@@ -881,7 +892,7 @@ export class PumpFunScanner {
 
     log.success(
       MODULE,
-      `QUALIFIED: ${candidate.symbol} | Buyers: ${uniqueBuyerCount} (excl. dev) | ${buySellStr} | Age: ${ageSec.toFixed(0)}s | MCap: ${candidate.latestMarketCapSol.toFixed(2)} SOL ($${(candidate.latestMarketCapSol * solPriceUsd).toFixed(0)})`
+      `QUALIFIED: ${candidate.symbol} | Consecutive buyers: ${uniqueBuyerCount} (excl. dev) | ${buySellStr} | Age: ${ageSec.toFixed(0)}s | MCap: ${candidate.latestMarketCapSol.toFixed(2)} SOL ($${(candidate.latestMarketCapSol * solPriceUsd).toFixed(0)})`
     );
 
     const evaluation = this.evaluateCandidate(candidate);

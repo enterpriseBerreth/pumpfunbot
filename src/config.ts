@@ -1,8 +1,8 @@
 import 'dotenv/config';
 
 const ENTRY_PARAMETERS = {
-  // Enter only after ten distinct non-developer buyers confirm the momentum.
-  MIN_UNIQUE_BUYERS: 10,
+  // Enter only after seven distinct non-developer buys with no sell between.
+  MIN_UNIQUE_BUYERS: 7,
   MIN_TOKEN_AGE_SECONDS: 15,
   MAX_TOKEN_AGE_SECONDS: 300,
   MIN_BUY_SELL_RATIO: 1.3,

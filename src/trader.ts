@@ -264,7 +264,7 @@ export class PaperTrader {
       pnlUsd: -fill.totalFeeUsd, // Start negative (fees already paid)
       pnlPct: (-fill.totalFeeUsd / sizeUsd) * 100,
 
-      uniqueBuyersAtEntry: candidate.uniqueBuyers.size,
+      uniqueBuyersAtEntry: candidate.consecutiveUniqueBuyers.size,
       marketCapAtEntry: candidate.latestMarketCapSol,
       buySellRatioAtEntry: buySellRatio,
       marketCapGrowthPctAtEntry: marketCapGrowthPct,
@@ -293,7 +293,7 @@ export class PaperTrader {
       position,
       amountUsd: sizeUsd,
       priceUsd: fill.fillPriceUsd,
-      reason: `${candidate.uniqueBuyers.size} buyers | MCap: ${candidate.latestMarketCapSol.toFixed(2)} SOL`,
+      reason: `${candidate.consecutiveUniqueBuyers.size} consecutive buyers | MCap: ${candidate.latestMarketCapSol.toFixed(2)} SOL`,
       timestamp: Date.now(),
     };
     this.tradeLog.push(event);
