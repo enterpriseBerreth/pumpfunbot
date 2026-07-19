@@ -1,11 +1,15 @@
 import 'dotenv/config';
 
 const ENTRY_PARAMETERS = {
-  // Enter only after seven distinct non-developer buys with no sell between.
-  MIN_UNIQUE_BUYERS: 7,
+  // Standard entry occurs only in the early six-to-ten unique-buyer window.
+  MIN_UNIQUE_BUYERS: 6,
+  MAX_STANDARD_ENTRY_UNIQUE_BUYERS: 10,
+  // Later entries require objective takeoff confirmation.
+  TAKEOFF_MIN_UNIQUE_BUYERS: 12,
+  TAKEOFF_MIN_MCAP_GROWTH_PCT: 30,
+  TAKEOFF_MIN_MOMENTUM_CONFIRMATIONS: 4,
   MIN_TOKEN_AGE_SECONDS: 15,
   MAX_TOKEN_AGE_SECONDS: 300,
-  MIN_BUY_SELL_RATIO: 1.3,
   MIN_MCAP_GROWTH_PCT: 5,
   MAX_MCAP_GROWTH_PCT: 250,
   MAX_ENTRY_MARKET_CAP_SOL: 120,
@@ -53,7 +57,6 @@ export const CONFIG = {
   TRADE_SIZE_USD: 10,
   HIGH_CONVICTION_TRADE_SIZE_USD: 20,
   HIGH_CONVICTION_MIN_UNIQUE_BUYERS: 15,
-  HIGH_CONVICTION_MIN_BUY_SELL_RATIO: 2.2,
   HIGH_CONVICTION_MIN_MCAP_GROWTH_PCT: 15,
   HIGH_CONVICTION_MIN_MOMENTUM_CONFIRMATIONS: 4,
   MAX_CONCURRENT_TRADES: 5,

@@ -528,11 +528,8 @@ export class PumpFunScanner {
         if (marketCapSol > 0) latestMcap = marketCapSol;
         buyCount = Math.max(buyCount, dexData.buyTxns);
         sellCount = Math.max(sellCount, dexData.sellTxns);
-        // DexScreener supplies transaction counts rather than wallets. Use a
-        // clearly labelled proxy only to fill missing real-time wallet flow.
-        for (let i = uniqueBuyers.size; i < dexData.buyTxns; i++) {
-          uniqueBuyers.add(`dex-buyer-${i}`);
-        }
+        // Transaction counts are not wallet identities. Do not synthesize
+        // unique buyers from them; entries require observed distinct wallets.
       }
 
       candidate.uniqueBuyers = uniqueBuyers;
@@ -671,10 +668,7 @@ export class PumpFunScanner {
 
   private evaluateCandidate(candidate: TokenCandidate): CandidateEvaluation {
     const ageSec = (Date.now() - candidate.createdAt) / 1000;
-    const uniqueBuyerCount = candidate.consecutiveUniqueBuyers.size;
-    const buySellRatio = candidate.sellCount > 0
-      ? candidate.buyCount / candidate.sellCount
-      : candidate.buyCount;
+    const uniqueBuyerCount = candidate.uniqueBuyers.size;
     const mcapGrowthPct = candidate.initialMarketCapSol > 0
       ? ((candidate.latestMarketCapSol - candidate.initialMarketCapSol) / candidate.initialMarketCapSol) * 100
       : 0;
@@ -688,7 +682,6 @@ export class PumpFunScanner {
         threshold: { min: CONFIG.MIN_TOKEN_AGE_SECONDS, max: CONFIG.MAX_TOKEN_AGE_SECONDS },
         passed: ageSec >= CONFIG.MIN_TOKEN_AGE_SECONDS && ageSec <= CONFIG.MAX_TOKEN_AGE_SECONDS,
       },
-      buySellRatio: { actual: Number(buySellRatio.toFixed(3)), threshold: CONFIG.MIN_BUY_SELL_RATIO, passed: buySellRatio >= CONFIG.MIN_BUY_SELL_RATIO },
       marketCapGrowthPct: {
         actual: Number(mcapGrowthPct.toFixed(3)),
         threshold: CONFIG.MIN_MCAP_GROWTH_PCT,
@@ -730,7 +723,6 @@ export class PumpFunScanner {
     const rejectionReasons: string[] = [];
     if (!checks.uniqueBuyers.passed) rejectionReasons.push(`unique_buyers ${uniqueBuyerCount} < ${CONFIG.MIN_UNIQUE_BUYERS}`);
     if (!checks.tokenAgeSeconds.passed) rejectionReasons.push(`token_age_seconds ${ageSec.toFixed(1)} outside ${CONFIG.MIN_TOKEN_AGE_SECONDS}-${CONFIG.MAX_TOKEN_AGE_SECONDS}`);
-    if (!checks.buySellRatio.passed) rejectionReasons.push(`buy_sell_ratio ${buySellRatio.toFixed(2)} < ${CONFIG.MIN_BUY_SELL_RATIO}`);
     if (!checks.marketCapGrowthPct.passed) rejectionReasons.push(`market_cap_growth_pct ${mcapGrowthPct.toFixed(2)} < ${CONFIG.MIN_MCAP_GROWTH_PCT}`);
     if (!checks.antiChaseMarketCapGrowth.passed) rejectionReasons.push(`market_cap_growth_pct ${mcapGrowthPct.toFixed(2)} > anti_chase_max ${CONFIG.MAX_MCAP_GROWTH_PCT}`);
     if (!checks.antiChaseMomentumStep.passed) rejectionReasons.push(`momentum_step_pct ${candidate.lastMomentumStepPct.toFixed(2)} > anti_chase_max ${CONFIG.MAX_MOMENTUM_STEP_PCT}`);
@@ -833,7 +825,7 @@ export class PumpFunScanner {
     if (candidate.qualified) return;
 
     const ageSec = (Date.now() - candidate.createdAt) / 1000;
-    const uniqueBuyerCount = candidate.consecutiveUniqueBuyers.size;
+    const uniqueBuyerCount = candidate.uniqueBuyers.size;
 
     // Basic requirements
     if (uniqueBuyerCount < CONFIG.MIN_UNIQUE_BUYERS) return;
@@ -869,7 +861,10 @@ export class PumpFunScanner {
     const buySellRatio = candidate.sellCount > 0
       ? candidate.buyCount / candidate.sellCount
       : candidate.buyCount;
-    if (buySellRatio < CONFIG.MIN_BUY_SELL_RATIO) {
+    const isTakingOff = uniqueBuyerCount >= CONFIG.TAKEOFF_MIN_UNIQUE_BUYERS
+      && mcapGrowthPct >= CONFIG.TAKEOFF_MIN_MCAP_GROWTH_PCT
+      && candidate.momentumConfirmations >= CONFIG.TAKEOFF_MIN_MOMENTUM_CONFIRMATIONS;
+    if (uniqueBuyerCount > CONFIG.MAX_STANDARD_ENTRY_UNIQUE_BUYERS && !isTakingOff) {
       return; // Don't log, just wait — ratio might improve
     }
 
@@ -892,7 +887,7 @@ export class PumpFunScanner {
 
     log.success(
       MODULE,
-      `QUALIFIED: ${candidate.symbol} | Consecutive buyers: ${uniqueBuyerCount} (excl. dev) | ${buySellStr} | Age: ${ageSec.toFixed(0)}s | MCap: ${candidate.latestMarketCapSol.toFixed(2)} SOL ($${(candidate.latestMarketCapSol * solPriceUsd).toFixed(0)})`
+      `QUALIFIED: ${candidate.symbol} | ${uniqueBuyerCount} verified unique buyers (excl. dev)${isTakingOff ? ' | confirmed takeoff' : ''} | Age: ${ageSec.toFixed(0)}s | MCap: ${candidate.latestMarketCapSol.toFixed(2)} SOL ($${(candidate.latestMarketCapSol * solPriceUsd).toFixed(0)})`
     );
 
     const evaluation = this.evaluateCandidate(candidate);

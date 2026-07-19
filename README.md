@@ -5,7 +5,7 @@ Automated Pump.fun trading bot with paper trading, trailing exits, and Telegram 
 ## Features
 
 - **Real-time Pump.fun scanning** via PumpPortal WebSocket
-- **Smart entry criteria**: Requires 3+ unique buyers (excluding developer) and 10s+ token age
+- **Smart entry criteria**: Enters in the 6–10 verified unique-buyer window (excluding developer); later entry requires objective takeoff confirmation.
 - **Paper trading mode** with $100 starting budget
 - **Structured paper-trade telemetry** for candidate decisions, missed-entry follow-ups, and exit quality
 - **Execution-route simulation** with optional live RPC priority-fee sampling and private-route tip modeling; no real transaction is signed or submitted
@@ -52,7 +52,7 @@ npm run dev
 
 ### Entry Criteria
 - Token launched on Pump.fun
-- At least **7 unique buyers** (developer wallet excluded)
+- **6–10 verified unique buyers** (developer wallet excluded); 12+ buyers may qualify only with confirmed takeoff momentum
 - Token is at least **15 seconds old** (avoids instant rugs)
 - Token is 15 seconds to 5 minutes old (catches early momentum without entering immediately)
 - At least **8% market-cap growth** and **three consecutive +3% market-cap updates**
@@ -64,7 +64,7 @@ npm run dev
 ### Exit Strategy
 | Trigger | Action |
 |---------|--------|
-| 4 consecutive unique sellers | Full sell |
+| 4 unique sellers after entry | Sell 100% |
 | +40% gain | Full sell |
 | 5% rapid dump | Full sell |
 | 6% decline from peak after a 12% gain | Full sell |

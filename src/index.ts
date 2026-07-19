@@ -24,7 +24,7 @@ async function main(): Promise<void> {
   console.log(`  Stop Loss:         -${CONFIG.STOP_LOSS_PCT}%`);
   console.log(`  Collapse Detect:   -${CONFIG.COLLAPSE_DROP_FROM_PEAK_PCT}% from peak (if was +${CONFIG.COLLAPSE_MIN_GAIN_PCT}%+)`);
   console.log(`  Rapid Dump Exit:   -${CONFIG.RAPID_DUMP_PCT}% in single update`);
-  console.log(`  Smart Filters:     Buy/Sell ratio ${CONFIG.MIN_BUY_SELL_RATIO}:1, MCap growth ${CONFIG.MIN_MCAP_GROWTH_PCT}%, Skip dev sells: ${CONFIG.SKIP_IF_DEV_SOLD}`);
+  console.log(`  Smart Filters:     Verified-buyer window ${CONFIG.MIN_UNIQUE_BUYERS}-${CONFIG.MAX_STANDARD_ENTRY_UNIQUE_BUYERS}; late entry requires takeoff confirmation; MCap growth ${CONFIG.MIN_MCAP_GROWTH_PCT}%, Skip dev sells: ${CONFIG.SKIP_IF_DEV_SOLD}`);
   console.log('');
 
   if (!CONFIG.PAPER_TRADE) {

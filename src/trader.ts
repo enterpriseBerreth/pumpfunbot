@@ -21,7 +21,7 @@ export class PaperTrader {
   private tradeLog: TradeEvent[] = [];
   private wins = 0;
   private losses = 0;
-  private consecutiveSellers = new Map<string, Set<string>>();
+  private uniqueSellers = new Map<string, Set<string>>();
 
   constructor(telegram: TelegramAlert) {
     this.telegram = telegram;
@@ -69,17 +69,14 @@ export class PaperTrader {
     const position = this.state.positions.get(mint);
     if (!position || position.status === 'closed') return;
 
-    if (side === 'buy') {
-      this.consecutiveSellers.delete(mint);
-      return;
-    }
+    if (side === 'buy') return;
 
-    const sellers = this.consecutiveSellers.get(mint) ?? new Set<string>();
+    const sellers = this.uniqueSellers.get(mint) ?? new Set<string>();
     sellers.add(traderPublicKey);
-    this.consecutiveSellers.set(mint, sellers);
+    this.uniqueSellers.set(mint, sellers);
 
     if (sellers.size >= CONFIG.CONSECUTIVE_UNIQUE_SELLS_TO_EXIT) {
-      void this.executeSell(position, `Order-flow exit: ${sellers.size} consecutive unique sellers`);
+      void this.executeSell(position, `Order-flow exit: 100% sold after ${sellers.size} unique sellers`);
     }
   }
 
@@ -264,7 +261,7 @@ export class PaperTrader {
       pnlUsd: -fill.totalFeeUsd, // Start negative (fees already paid)
       pnlPct: (-fill.totalFeeUsd / sizeUsd) * 100,
 
-      uniqueBuyersAtEntry: candidate.consecutiveUniqueBuyers.size,
+      uniqueBuyersAtEntry: candidate.uniqueBuyers.size,
       marketCapAtEntry: candidate.latestMarketCapSol,
       buySellRatioAtEntry: buySellRatio,
       marketCapGrowthPctAtEntry: marketCapGrowthPct,
@@ -293,7 +290,7 @@ export class PaperTrader {
       position,
       amountUsd: sizeUsd,
       priceUsd: fill.fillPriceUsd,
-      reason: `${candidate.consecutiveUniqueBuyers.size} consecutive buyers | MCap: ${candidate.latestMarketCapSol.toFixed(2)} SOL`,
+      reason: `${candidate.uniqueBuyers.size} verified unique buyers | MCap: ${candidate.latestMarketCapSol.toFixed(2)} SOL`,
       timestamp: Date.now(),
     };
     this.tradeLog.push(event);
@@ -338,12 +335,10 @@ export class PaperTrader {
   // ── Price Update (called from WebSocket trade events) ──
 
   private getTradeSize(candidate: TokenCandidate): number {
-    const buySellRatio = candidate.sellCount > 0 ? candidate.buyCount / candidate.sellCount : candidate.buyCount;
     const marketCapGrowthPct = candidate.initialMarketCapSol > 0
       ? ((candidate.latestMarketCapSol - candidate.initialMarketCapSol) / candidate.initialMarketCapSol) * 100
       : 0;
     const isHighConviction = candidate.uniqueBuyers.size >= CONFIG.HIGH_CONVICTION_MIN_UNIQUE_BUYERS
-      && buySellRatio >= CONFIG.HIGH_CONVICTION_MIN_BUY_SELL_RATIO
       && marketCapGrowthPct >= CONFIG.HIGH_CONVICTION_MIN_MCAP_GROWTH_PCT
       && candidate.momentumConfirmations >= CONFIG.HIGH_CONVICTION_MIN_MOMENTUM_CONFIRMATIONS
       && candidate.developerLaunchesAtEntry <= CONFIG.MAX_DEVELOPER_LAUNCHES_IN_WINDOW;
@@ -488,7 +483,7 @@ export class PaperTrader {
     position.remainingSizeUsd = 0;
     position.status = 'closed';
     position.exitReason = reason;
-    this.consecutiveSellers.delete(position.mint);
+    this.uniqueSellers.delete(position.mint);
 
     // Return net proceeds to budget
     this.state.budgetRemaining += fill.netProceedsUsd;
