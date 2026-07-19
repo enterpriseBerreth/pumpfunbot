@@ -120,6 +120,7 @@ export class PumpFunScanner {
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private rejectionFollowupInterval: ReturnType<typeof setInterval> | null = null;
   private subscribedTokens = new Set<string>();
+  private streamedCandidateMints = new Set<string>();
   private rejectedCandidates = new Map<string, RejectedCandidateTelemetry>();
   private hasApiKey: boolean;
   private totalScanned = 0;
@@ -327,6 +328,17 @@ export class PumpFunScanner {
   private handleNewToken(token: PumpFunNewToken): void {
     if (this.candidates.has(token.mint)) return;
 
+    // Preserve the existing focused watchlist until each token has had enough
+    // time to accumulate real-time or polling confirmations. Replacing the
+    // oldest token on every launch made the 3-confirmation rule unreachable.
+    if (this.candidates.size >= CONFIG.MAX_ACTIVE_CANDIDATES) {
+      const oldest = Array.from(this.candidates.values())
+        .filter((candidate) => !candidate.qualified)
+        .sort((left, right) => left.createdAt - right.createdAt)[0];
+      if (!oldest || Date.now() - oldest.createdAt < CONFIG.MIN_CANDIDATE_WATCH_MS) return;
+      this.removeCandidate(oldest.mint, true);
+    }
+
     this.totalScanned++;
     this.recordDeveloperLaunch(token.traderPublicKey);
     const priceSol = token.marketCapSol / CONFIG.PUMPFUN_TOTAL_SUPPLY;
@@ -373,6 +385,7 @@ export class PumpFunScanner {
         method: 'subscribeTokenTrade',
         keys: [token.mint],
       }));
+      this.streamedCandidateMints.add(token.mint);
     }
   }
 
@@ -910,30 +923,23 @@ export class PumpFunScanner {
       }
     }
 
-    const overflow = Math.max(0, this.candidates.size - CONFIG.MAX_ACTIVE_CANDIDATES);
-    if (overflow > 0) {
-      const leastRecent = Array.from(this.candidates.values())
-        .filter((candidate) => !candidate.qualified)
-        .sort((left, right) => left.lastTradeAt - right.lastTradeAt)
-        .slice(0, overflow);
-      expired.push(...leastRecent.map((candidate) => candidate.mint));
-    }
-
     if (expired.length > 0) {
-      for (const mint of expired) {
+      for (const mint of new Set(expired)) {
         const candidate = this.candidates.get(mint);
-        if (candidate) {
-          this.recordRejectedCandidate(candidate, this.evaluateCandidate(candidate), 'filter_rejection');
-        }
-        this.candidates.delete(mint);
-        if (this.hasApiKey && !this.subscribedTokens.has(mint) && this.ws?.readyState === WebSocket.OPEN) {
+        if (candidate) this.recordRejectedCandidate(candidate, this.evaluateCandidate(candidate), 'filter_rejection');
+        this.removeCandidate(mint, true);
+      }
+      log.info(MODULE, `Cleaned up ${new Set(expired).size} expired candidate(s) | Active: ${this.candidates.size}`);
+    }
+  }
+
+  private removeCandidate(mint: string, unsubscribe: boolean): void {
+    this.candidates.delete(mint);
+    if (unsubscribe && this.streamedCandidateMints.delete(mint) && this.ws?.readyState === WebSocket.OPEN) {
           this.ws.send(JSON.stringify({
             method: 'unsubscribeTokenTrade',
             keys: [mint],
           }));
-        }
-      }
-      log.info(MODULE, `Cleaned up ${expired.length} expired candidate(s) | Active: ${this.candidates.size}`);
     }
   }
 }

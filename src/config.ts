@@ -77,9 +77,12 @@ export const CONFIG = {
   PRICE_CHECK_INTERVAL_MS: 3_000,
   // Keep candidates for the entire configured entry window so late-forming
   // positive momentum is observable before a rejection is recorded.
-  CANDIDATE_TIMEOUT_MS: 120_000,
-  MAX_ACTIVE_CANDIDATES: 250,
-  CANDIDATE_POLL_BATCH_SIZE: 20,
+  // The watchlist must remain small and stable enough to obtain multiple
+  // observations before a candidate expires.
+  CANDIDATE_TIMEOUT_MS: 180_000,
+  MIN_CANDIDATE_WATCH_MS: 75_000,
+  MAX_ACTIVE_CANDIDATES: 120,
+  CANDIDATE_POLL_BATCH_SIZE: 60,
   DEVELOPER_LAUNCH_WINDOW_MS: 30 * 60_000,
   MAX_DEVELOPER_LAUNCHES_IN_WINDOW: 1,
   WS_RECONNECT_DELAY_MS: 3_000,
