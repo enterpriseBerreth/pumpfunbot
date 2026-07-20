@@ -127,6 +127,8 @@ export class PumpFunScanner {
   private pollCursor = 0;
   private developerLaunches = new Map<string, number[]>();
   private websocketForbidden = false;
+  private pollInFlight = false;
+  private feedErrorAt = new Map<string, number>();
 
   // Callback when a token qualifies for buying
   onQualifiedToken: ((candidate: TokenCandidate) => void) | null = null;
@@ -434,6 +436,9 @@ export class PumpFunScanner {
   }
 
   private async pollCandidates(): Promise<void> {
+    if (this.pollInFlight) return;
+    this.pollInFlight = true;
+    try {
     const now = Date.now();
     const toCheck: TokenCandidate[] = [];
 
@@ -469,6 +474,9 @@ export class PumpFunScanner {
     }
 
     await Promise.allSettled(promises);
+    } finally {
+      this.pollInFlight = false;
+    }
   }
 
   private async pollTokenTrades(candidate: TokenCandidate): Promise<void> {
@@ -478,7 +486,9 @@ export class PumpFunScanner {
       // endpoint exposes their flow; in that case DexScreener remains the
       // active quote/flow fallback instead of leaving the candidate at zero.
       const trades = await this.fetchPumpFunTrades(candidate.mint);
-      const uniqueBuyers = new Set<string>();
+      // Keep buyer identities previously observed from WebSocket messages if
+      // the polling API is delayed, incomplete, or temporarily unavailable.
+      const uniqueBuyers = new Set(candidate.uniqueBuyers);
       let latestMcap = candidate.latestMarketCapSol;
       let buyCount = 0;
       let sellCount = 0;
@@ -540,8 +550,15 @@ export class PumpFunScanner {
       if (latestMcap > 0) this.updateCandidateMarketCap(candidate, latestMcap);
       this.checkQualification(candidate);
     } catch (err) {
-      // Silently ignore polling errors for individual tokens
+      this.logFeedError(candidate.mint, err);
     }
+  }
+
+  private logFeedError(mint: string, error: unknown): void {
+    const now = Date.now(); const last = this.feedErrorAt.get(mint) ?? 0;
+    if (now - last < CONFIG.FEED_ERROR_LOG_COOLDOWN_MS) return;
+    this.feedErrorAt.set(mint, now);
+    log.warn(MODULE, `Trade-data polling failed for ${mint.slice(0, 8)}...; preserving observed wallet flow. ${error instanceof Error ? error.message : String(error)}`);
   }
 
   private async pollTokenPrice(mint: string): Promise<void> {

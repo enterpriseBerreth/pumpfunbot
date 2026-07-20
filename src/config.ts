@@ -1,16 +1,16 @@
 import 'dotenv/config';
 
 const ENTRY_PARAMETERS = {
-  // Standard entry occurs only in the early six-to-ten unique-buyer window.
-  MIN_UNIQUE_BUYERS: 6,
-  MAX_STANDARD_ENTRY_UNIQUE_BUYERS: 10,
+  // Standard entry occurs only in the early five-to-twelve unique-buyer window.
+  MIN_UNIQUE_BUYERS: 5,
+  MAX_STANDARD_ENTRY_UNIQUE_BUYERS: 12,
   // Later entries require objective takeoff confirmation.
-  TAKEOFF_MIN_UNIQUE_BUYERS: 12,
-  TAKEOFF_MIN_MCAP_GROWTH_PCT: 30,
-  TAKEOFF_MIN_MOMENTUM_CONFIRMATIONS: 4,
+  TAKEOFF_MIN_UNIQUE_BUYERS: 11,
+  TAKEOFF_MIN_MCAP_GROWTH_PCT: 25,
+  TAKEOFF_MIN_MOMENTUM_CONFIRMATIONS: 3,
   MIN_TOKEN_AGE_SECONDS: 15,
   MAX_TOKEN_AGE_SECONDS: 300,
-  MIN_MCAP_GROWTH_PCT: 5,
+  MIN_MCAP_GROWTH_PCT: 4,
   MAX_MCAP_GROWTH_PCT: 250,
   MAX_ENTRY_MARKET_CAP_SOL: 120,
   MIN_MOMENTUM_STEP_PCT: 2,
@@ -76,16 +76,17 @@ export const CONFIG = {
   PUMPFUN_WS_URL: 'wss://pumpportal.fun/api/data',
   PUMPFUN_API_BASE: 'https://frontend-api-v3.pump.fun',
   DEXSCREENER_API_BASE: 'https://api.dexscreener.com',
-  POLL_INTERVAL_MS: 4_000,
+  POLL_INTERVAL_MS: 8_000,
   PRICE_CHECK_INTERVAL_MS: 3_000,
   // Keep candidates for the entire configured entry window so late-forming
   // positive momentum is observable before a rejection is recorded.
   // The watchlist must remain small and stable enough to obtain multiple
   // observations before a candidate expires.
-  CANDIDATE_TIMEOUT_MS: 180_000,
+  CANDIDATE_TIMEOUT_MS: 240_000,
   MIN_CANDIDATE_WATCH_MS: 75_000,
   MAX_ACTIVE_CANDIDATES: 120,
-  CANDIDATE_POLL_BATCH_SIZE: 60,
+  CANDIDATE_POLL_BATCH_SIZE: 12,
+  FEED_ERROR_LOG_COOLDOWN_MS: 60_000,
   DEVELOPER_LAUNCH_WINDOW_MS: 30 * 60_000,
   MAX_DEVELOPER_LAUNCHES_IN_WINDOW: 1,
   WS_RECONNECT_DELAY_MS: 3_000,
